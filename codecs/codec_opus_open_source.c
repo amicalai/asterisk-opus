@@ -856,20 +856,26 @@ static int parse_config(int reload)
 			}
 			complexity = i;
 		} else if (!strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE)) {
-			i = atoi(var->value);
-			if (i < 500 || i > 512000) {
-				res = 1;
-				ast_log(LOG_ERROR, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE " must be in 500-512000\n");
-				break;
+			if (!strcasecmp(var->value, "auto")) {
+				maxbitrate = CODEC_OPUS_DEFAULT_BITRATE;
+			} else {
+				i = atoi(var->value);
+				if (i < 500 || i > 512000) {
+					res = 1;
+					ast_log(LOG_ERROR, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE " must be in 500-512000 or 'auto'\n");
+					break;
+				}
+				maxbitrate = i;
 			}
-			maxbitrate = i;
 		} else if (!strcasecmp(var->name, "fec")) {
 			fec = ast_true(var->value);
 		} else if (!strcasecmp(var->name, "dtx")) {
 			dtx = ast_true(var->value);
 		} else if (!strcasecmp(var->name, "cbr")) {
 			cbr = ast_true(var->value);
-		} else if (!strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE)) {
+		} else if (!strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE) || 
+		           !strcasecmp(var->name, "max_playback_rate") ||
+		           !strcasecmp(var->name, "maxplaybackrate")) {
 			i = atoi(var->value);
 			if (i < 8000 || i > 48000) {
 				res = 1;
@@ -883,6 +889,9 @@ static int parse_config(int reload)
 				res = 1;
 				ast_log(LOG_ERROR, "loss_percent must be in -1-100\n");
 				break;
+			}
+			if (i == 0) {
+				ast_debug(1, "loss_percent=0 forces FEC for all packets (no loss estimation)\n");
 			}
 			loss_percent = i;
 		}
