@@ -51,44 +51,45 @@ ASTERISK_REGISTER_FILE()
 ASTERISK_FILE_VERSION(__FILE__, "$Revision: $")
 #endif
 
-#include "asterisk/astobj2.h"           /* for ao2_ref */
-#include "asterisk/cli.h"               /* for ast_cli_entry, ast_cli, etc */
-#include "asterisk/codec.h"             /* for ast_codec_get */
-#include "asterisk/format.h"            /* for ast_format_get_attribute_data */
-#include "asterisk/frame.h"             /* for ast_frame, etc */
-#include "asterisk/linkedlists.h"       /* for AST_LIST_NEXT, etc */
-#include "asterisk/lock.h"              /* for ast_atomic_fetchadd_int */
-#include "asterisk/logger.h"            /* for ast_log, LOG_ERROR, etc */
+#include "asterisk/astobj2.h"	  /* for ao2_ref */
+#include "asterisk/cli.h"		  /* for ast_cli_entry, ast_cli, etc */
+#include "asterisk/codec.h"		  /* for ast_codec_get */
+#include "asterisk/format.h"	  /* for ast_format_get_attribute_data */
+#include "asterisk/frame.h"		  /* for ast_frame, etc */
+#include "asterisk/linkedlists.h" /* for AST_LIST_NEXT, etc */
+#include "asterisk/lock.h"		  /* for ast_atomic_fetchadd_int */
+#include "asterisk/logger.h"	  /* for ast_log, LOG_ERROR, etc */
 #include "asterisk/module.h"
-#include "asterisk/translate.h"         /* for ast_trans_pvt, etc */
-#include "asterisk/utils.h"             /* for ARRAY_LEN */
-#include "asterisk/config.h"            /* for ast_config_load and ast_variable_browse */
+#include "asterisk/translate.h" /* for ast_trans_pvt, etc */
+#include "asterisk/utils.h"		/* for ARRAY_LEN */
+#include "asterisk/config.h"	/* for ast_config_load and ast_variable_browse */
 
 #include <opus/opus.h>
 
-#include "asterisk/opus.h"              /* for CODEC_OPUS_DEFAULT_* */
+#include "asterisk/opus.h" /* for CODEC_OPUS_DEFAULT_* */
 
-#define	BUFFER_SAMPLES	5760
-#define	MAX_CHANNELS	2
-#define	OPUS_SAMPLES	960
+#define BUFFER_SAMPLES 5760
+#define MAX_CHANNELS 2
+#define OPUS_SAMPLES 960
 
 /* Configurable variables in codecs.conf */
-static int complexity = 10;              /* Computational complexity (0-10) */
-static int bitrate = CODEC_OPUS_DEFAULT_BITRATE; /* "auto" = 510000 */
-static int fec = CODEC_OPUS_DEFAULT_FEC;  /* Forward Error Correction */
-static int dtx = CODEC_OPUS_DEFAULT_DTX;  /* Discontinuous Transmission */
-static int cbr = CODEC_OPUS_DEFAULT_CBR;  /* Constant Bit Rate (0=VBR) */
+static int complexity = 10;											 /* Computational complexity (0-10) */
+static int bitrate = CODEC_OPUS_DEFAULT_BITRATE;					 /* "auto" = 510000 */
+static int fec = CODEC_OPUS_DEFAULT_FEC;							 /* Forward Error Correction */
+static int dtx = CODEC_OPUS_DEFAULT_DTX;							 /* Discontinuous Transmission */
+static int cbr = CODEC_OPUS_DEFAULT_CBR;							 /* Constant Bit Rate (0=VBR) */
 static int max_playback_rate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE; /* Max sampling rate */
-static int packet_loss = -1;             /* Packet loss percentage (-1=disabled, 0-100) */
-static char max_bandwidth[16] = "full";  /* narrow, medium, wide, super_wide, full */
-static char signal[8] = "auto";          /* auto, voice, music */
-static char application[12] = "voip";    /* voip, audio, low_delay */
+static int packet_loss = -1;										 /* Packet loss percentage (-1=disabled, 0-100) */
+static char max_bandwidth[16] = "full";								 /* narrow, medium, wide, super_wide, full */
+static char signal_type[8] = "auto";								 /* auto, voice, music */
+static char application[12] = "voip";								 /* voip, audio, low_delay */
 
 /* Sample frame data */
 #include "asterisk/slin.h"
 #include "ex_opus.h"
 
-static struct codec_usage {
+static struct codec_usage
+{
 	int encoder_id;
 	int decoder_id;
 	int encoders;
@@ -104,8 +105,9 @@ static struct ast_codec *opus_codec; /* codec of the cached format */
 static int (*opus_samples_previous)(struct ast_frame *frame);
 
 /* Private structures */
-struct opus_coder_pvt {
-	void *opus;	/* May be encoder or decoder */
+struct opus_coder_pvt
+{
+	void *opus; /* May be encoder or decoder */
 	int sampling_rate;
 	int multiplier;
 	int id;
@@ -117,7 +119,8 @@ struct opus_coder_pvt {
 	int previous_lost;
 };
 
-struct opus_attr {
+struct opus_attr
+{
 	unsigned int maxbitrate;
 	unsigned int maxplayrate;
 	unsigned int unused; /* was minptime */
@@ -126,7 +129,7 @@ struct opus_attr {
 	unsigned int fec;
 	unsigned int dtx;
 	unsigned int spropmaxcapturerate; /* FIXME: not utilised, yet */
-	unsigned int spropstereo; /* FIXME: currently, we are just mono */
+	unsigned int spropstereo;		  /* FIXME: currently, we are just mono */
 };
 
 /* Helper methods */
@@ -141,68 +144,94 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 	const opus_int32 use_fec = attr ? attr->fec : fec;
 	const opus_int32 use_dtx = attr ? attr->dtx : dtx;
 	int app;
-	
+
 	/* Set application type based on configuration */
-	if (!strcasecmp(application, "audio")) {
+	if (!strcasecmp(application, "audio"))
+	{
 		app = OPUS_APPLICATION_AUDIO;
-	} else if (!strcasecmp(application, "low_delay")) {
+	}
+	else if (!strcasecmp(application, "low_delay"))
+	{
 		app = OPUS_APPLICATION_RESTRICTED_LOWDELAY;
-	} else {
+	}
+	else
+	{
 		app = OPUS_APPLICATION_VOIP;
 	}
-	
+
 	int status = 0;
 
 	opvt->opus = opus_encoder_create(sampling_rate, channels, app, &status);
 
-	if (status != OPUS_OK) {
+	if (status != OPUS_OK)
+	{
 		ast_log(LOG_ERROR, "Error creating the Opus encoder: %s\n", opus_strerror(status));
 		return -1;
 	}
 
 	/* Priorité à l'option explicite max_bandwidth */
-	if (!strcasecmp(max_bandwidth, "narrow")) {
+	if (!strcasecmp(max_bandwidth, "narrow"))
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
-	} else if (!strcasecmp(max_bandwidth, "medium")) {
+	}
+	else if (!strcasecmp(max_bandwidth, "medium"))
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_MEDIUMBAND));
-	} else if (!strcasecmp(max_bandwidth, "wide")) {
+	}
+	else if (!strcasecmp(max_bandwidth, "wide"))
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
-	} else if (!strcasecmp(max_bandwidth, "super_wide")) {
+	}
+	else if (!strcasecmp(max_bandwidth, "super_wide"))
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_SUPERWIDEBAND));
 	}
 	/* sinon on utilise la logique basée sur sampling_rate/playrate */
-	else if (sampling_rate <= 8000 || playrate <= 8000) {
+	else if (sampling_rate <= 8000 || playrate <= 8000)
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
-	} else if (sampling_rate <= 12000 || playrate <= 12000) {
+	}
+	else if (sampling_rate <= 12000 || playrate <= 12000)
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_MEDIUMBAND));
-	} else if (sampling_rate <= 16000 || playrate <= 16000) {
+	}
+	else if (sampling_rate <= 16000 || playrate <= 16000)
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
-	} else if (sampling_rate <= 24000 || playrate <= 24000) {
+	}
+	else if (sampling_rate <= 24000 || playrate <= 24000)
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_SUPERWIDEBAND));
 	} /* else we use the default: OPUS_BANDWIDTH_FULLBAND */
-	
+
 	/* Set the signal type */
-	if (!strcasecmp(signal, "voice")) {
+	if (!strcasecmp(signal_type, "voice"))
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
-	} else if (!strcasecmp(signal, "music")) {
+	}
+	else if (!strcasecmp(signal_type, "music"))
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
 	}
 	/* Pour "auto", ne rien faire - c'est le comportement par défaut */
 
-	if (bitrate_val > 0 && bitrate_val != 510000) {
+	if (bitrate_val > 0 && bitrate_val != 510000)
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_BITRATE(bitrate_val));
 	} /* else we use the default: OPUS_AUTO */
-	
-	if (complexity != 10) {
+
+	if (complexity != 10)
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_COMPLEXITY(complexity));
 	}
-	
+
 	status = opus_encoder_ctl(opvt->opus, OPUS_SET_VBR(vbr));
 	status = opus_encoder_ctl(opvt->opus, OPUS_SET_INBAND_FEC(use_fec));
 	status = opus_encoder_ctl(opvt->opus, OPUS_SET_DTX(use_dtx));
-	
+
 	/* Set packet loss percentage if enabled */
-	if (packet_loss >= 0) {
+	if (packet_loss >= 0)
+	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_PACKET_LOSS_PERC(packet_loss));
 	}
 
@@ -230,7 +259,8 @@ static int opus_decoder_construct(struct ast_trans_pvt *pvt, struct ast_frame *f
 
 	opvt->opus = opus_decoder_create(opvt->sampling_rate, opvt->channels, &error);
 
-	if (error != OPUS_OK) {
+	if (error != OPUS_OK)
+	{
 		ast_log(LOG_ERROR, "Error creating the Opus decoder: %s\n", opus_strerror(error));
 		return -1;
 	}
@@ -255,7 +285,7 @@ static int opustolin_new(struct ast_trans_pvt *pvt)
 	struct opus_coder_pvt *opvt = pvt->pvt;
 
 	opvt->previous_lost = 0; /* we are new and have not lost anything */
-	opvt->inited = 0; /* we do not know the "sprop" values, yet */
+	opvt->inited = 0;		 /* we do not know the "sprop" values, yet */
 
 	return 0;
 }
@@ -280,29 +310,38 @@ static struct ast_frame *lintoopus_frameout(struct ast_trans_pvt *pvt)
 	struct ast_frame *last = NULL;
 	int samples = 0; /* output samples */
 
-	while (pvt->samples >= opvt->framesize) {
+	while (pvt->samples >= opvt->framesize)
+	{
 		/* status is either error or output bytes */
 		const int status = opus_encode(opvt->opus,
-			opvt->buf + samples,
-			opvt->framesize,
-			pvt->outbuf.uc,
-			BUFFER_SAMPLES);
+									   opvt->buf + samples,
+									   opvt->framesize,
+									   pvt->outbuf.uc,
+									   BUFFER_SAMPLES);
 
 		samples += opvt->framesize;
 		pvt->samples -= opvt->framesize;
 
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "Error encoding the Opus frame: %s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			struct ast_frame *current = ast_trans_frameout(pvt,
-				status,
-				OPUS_SAMPLES);
+														   status,
+														   OPUS_SAMPLES);
 
-			if (!current) {
+			if (!current)
+			{
 				continue;
-			} else if (last) {
+			}
+			else if (last)
+			{
 				AST_LIST_NEXT(last, frame_list) = current;
-			} else {
+			}
+			else
+			{
 				result = current;
 			}
 			last = current;
@@ -310,7 +349,8 @@ static struct ast_frame *lintoopus_frameout(struct ast_trans_pvt *pvt)
 	}
 
 	/* Move the data at the end of the buffer to the front */
-	if (samples) {
+	if (samples)
+	{
 		memmove(opvt->buf, opvt->buf + samples, pvt->samples * 2);
 	}
 
@@ -327,12 +367,16 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 	unsigned char *src;
 	int status;
 
-	if (!opvt->inited && f->datalen == 0) {
+	if (!opvt->inited && f->datalen == 0)
+	{
 		return 0; /* we cannot start without data */
-	} else if (!opvt->inited) { /* 0 < f->datalen */
+	}
+	else if (!opvt->inited)
+	{ /* 0 < f->datalen */
 		status = opus_decoder_construct(pvt, f);
 		opvt->inited = 1;
-		if (status) {
+		if (status)
+		{
 			return status;
 		}
 	}
@@ -341,10 +385,12 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 	 * When we get a frame indicator (ast_null_frame), format is NULL. Because FEC
 	 * status can change any time (SDP re-negotiation), we save again and again.
 	 */
-	if (f->subclass.format) {
+	if (f->subclass.format)
+	{
 		struct opus_attr *attr = ast_format_get_attribute_data(f->subclass.format);
 
-		if (attr) {
+		if (attr)
+		{
 			opvt->decode_fec_incoming = attr->fec;
 		}
 	}
@@ -383,7 +429,8 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 	 */
 
 	/* Case 1 and 2 */
-	if (f->datalen == 0 && opvt->previous_lost) {
+	if (f->datalen == 0 && opvt->previous_lost)
+	{
 		/*
 		 * If this frame and the previous frame got lost, we do not have any
 		 * data for FEC. Therefore, we go for PLC on the previous frame. However,
@@ -396,9 +443,12 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 		len = 0;
 		src = NULL;
 		status = opus_decode(opvt->opus, src, len, dst, frame_size, decode_fec);
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
@@ -411,7 +461,8 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 	}
 
 	/* Case 3 */
-	if (f->datalen == 0 && !decode_fec) { /* !opvt->previous_lost */
+	if (f->datalen == 0 && !decode_fec)
+	{ /* !opvt->previous_lost */
 		/*
 		 * The sender stated in SDP: "I am not going to provide FEC". Therefore,
 		 * we do not wait for the next frame and do PLC right away.
@@ -422,9 +473,12 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 		len = f->datalen;
 		src = NULL;
 		status = opus_decode(opvt->opus, src, len, dst, frame_size, decode_fec);
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
@@ -433,7 +487,8 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 	}
 
 	/* Case 4 */
-	if (f->datalen == 0) { /* decode_fec && !opvt->previous_lost */
+	if (f->datalen == 0)
+	{ /* decode_fec && !opvt->previous_lost */
 		/*
 		 * The previous frame was of no issue. Therefore, we do not have to
 		 * reconstruct it. We do not have any data in the current frame but the
@@ -443,9 +498,12 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 		 * warning or apply the patch included in the GitHub repository.
 		 */
 		status = 0; /* no samples to add currently */
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
@@ -454,7 +512,8 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 	}
 
 	/* Case 5 and 6 */
-	if (!opvt->previous_lost) { /* 0 < f->datalen */
+	if (!opvt->previous_lost)
+	{ /* 0 < f->datalen */
 		/*
 		 * The perfect case - the previous frame was not lost and we have data
 		 * in the current frame. Therefore, neither FEC nor PLC are required.
@@ -465,9 +524,12 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 		len = f->datalen;
 		src = f->data.ptr;
 		status = opus_decode(opvt->opus, src, len, dst, frame_size, decode_fec);
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
@@ -476,7 +538,8 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 	}
 
 	/* Case 7 */
-	if (!decode_fec) { /* 0 < f->datalen && opvt->previous_lost */
+	if (!decode_fec)
+	{ /* 0 < f->datalen && opvt->previous_lost */
 		/*
 		 * The previous frame got lost and the sender stated in SDP: "I am not
 		 * going to provide FEC". Therefore, we do PLC. Furthermore, we try to
@@ -492,21 +555,27 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 		len = 0;
 		src = NULL;
 		status = opus_decode(opvt->opus, src, len, dst, frame_size, decode_fec);
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
 		decode_fec = 0;
-		frame_size = BUFFER_SAMPLES / opvt->multiplier; /* parse everything */
+		frame_size = BUFFER_SAMPLES / opvt->multiplier;			 /* parse everything */
 		dst = pvt->outbuf.i16 + (pvt->samples * opvt->channels); /* append after PLC data */
 		len = f->datalen;
 		src = f->data.ptr;
 		status = opus_decode(opvt->opus, src, len, dst, frame_size, decode_fec);
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
@@ -522,21 +591,27 @@ static int opustolin_framein(struct ast_trans_pvt *pvt, struct ast_frame *f)
 		len = f->datalen;
 		src = f->data.ptr;
 		status = opus_decode(opvt->opus, src, len, dst, frame_size, decode_fec);
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
 		decode_fec = 0;
-		frame_size = BUFFER_SAMPLES / opvt->multiplier; /* parse everything */
+		frame_size = BUFFER_SAMPLES / opvt->multiplier;			 /* parse everything */
 		dst = pvt->outbuf.i16 + (pvt->samples * opvt->channels); /* append after FEC data */
 		len = f->datalen;
 		src = f->data.ptr;
 		status = opus_decode(opvt->opus, src, len, dst, frame_size, decode_fec);
-		if (status < 0) {
+		if (status < 0)
+		{
 			ast_log(LOG_ERROR, "%s\n", opus_strerror(status));
-		} else {
+		}
+		else
+		{
 			pvt->samples += status;
 			pvt->datalen += status * opvt->channels * sizeof(int16_t);
 		}
@@ -549,7 +624,8 @@ static void lintoopus_destroy(struct ast_trans_pvt *arg)
 {
 	struct opus_coder_pvt *opvt = arg->pvt;
 
-	if (!opvt || !opvt->opus) {
+	if (!opvt || !opvt->opus)
+	{
 		return;
 	}
 
@@ -565,7 +641,8 @@ static void opustolin_destroy(struct ast_trans_pvt *arg)
 {
 	struct opus_coder_pvt *opvt = arg->pvt;
 
-	if (!opvt || !opvt->opus) {
+	if (!opvt || !opvt->opus)
+	{
 		return;
 	}
 
@@ -581,7 +658,8 @@ static char *handle_cli_opus_show(struct ast_cli_entry *e, int cmd, struct ast_c
 {
 	struct codec_usage copy;
 
-	switch (cmd) {
+	switch (cmd)
+	{
 	case CLI_INIT:
 		e->command = "opus show";
 		e->usage =
@@ -592,28 +670,32 @@ static char *handle_cli_opus_show(struct ast_cli_entry *e, int cmd, struct ast_c
 		return NULL;
 	}
 
-	if (a->argc != 2) {
+	if (a->argc != 2)
+	{
 		return CLI_SHOWUSAGE;
 	}
 
 	copy = usage;
 
 	ast_cli(a->fd, "%d/%d encoders/decoders are in use.\n", copy.encoders, copy.decoders);
-	
+
 	ast_cli(a->fd, "\nCurrent Opus Configuration:\n");
 	ast_cli(a->fd, "-------------------------\n");
 	ast_cli(a->fd, "Complexity:       %d\n", complexity);
 	ast_cli(a->fd, "Bitrate:          %d bit/s\n", bitrate);
 	ast_cli(a->fd, "Max Playback Rate: %d Hz\n", max_playback_rate);
 	ast_cli(a->fd, "Max Bandwidth:    %s\n", max_bandwidth);
-	ast_cli(a->fd, "Signal Type:      %s\n", signal);
+	ast_cli(a->fd, "Signal Type:      %s\n", signal_type);
 	ast_cli(a->fd, "Application:      %s\n", application);
 	ast_cli(a->fd, "FEC:              %s\n", fec ? "enabled" : "disabled");
 	ast_cli(a->fd, "DTX:              %s\n", dtx ? "enabled" : "disabled");
 	ast_cli(a->fd, "CBR:              %s\n", cbr ? "enabled" : "disabled (VBR)");
-	if (packet_loss >= 0) {
+	if (packet_loss >= 0)
+	{
 		ast_cli(a->fd, "Packet Loss:      %d%%\n", packet_loss);
-	} else {
+	}
+	else
+	{
 		ast_cli(a->fd, "Packet Loss:      disabled\n");
 	}
 	ast_cli(a->fd, "\nNote: SDP negotiated parameters from clients may override these settings.\n");
@@ -623,245 +705,244 @@ static char *handle_cli_opus_show(struct ast_cli_entry *e, int cmd, struct ast_c
 
 /* Translators */
 static struct ast_translator opustolin = {
-        .table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP,
-        .name = "opustolin",
-        .src_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .dst_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 8000,
-        },
-        .format = "slin",
-        .newpvt = opustolin_new,
-        .framein = opustolin_framein,
-        .destroy = opustolin_destroy,
-        .sample = opus_sample,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = (BUFFER_SAMPLES / (48000 / 8000)) * 2, /* because of possible FEC */
-        .buf_size = (BUFFER_SAMPLES / (48000 / 8000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
-        .native_plc = 1,
+	.table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP,
+	.name = "opustolin",
+	.src_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.dst_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 8000,
+	},
+	.format = "slin",
+	.newpvt = opustolin_new,
+	.framein = opustolin_framein,
+	.destroy = opustolin_destroy,
+	.sample = opus_sample,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = (BUFFER_SAMPLES / (48000 / 8000)) * 2, /* because of possible FEC */
+	.buf_size = (BUFFER_SAMPLES / (48000 / 8000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
+	.native_plc = 1,
 };
 
 static struct ast_translator lintoopus = {
-        .table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP,
-        .name = "lintoopus",
-        .src_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 8000,
-        },
-        .dst_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .format = "opus",
-        .newpvt = lintoopus_new,
-        .framein = lintoopus_framein,
-        .frameout = lintoopus_frameout,
-        .destroy = lintoopus_destroy,
-        .sample = slin8_sample,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = BUFFER_SAMPLES,
-        .buf_size = BUFFER_SAMPLES * 2,
+	.table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP,
+	.name = "lintoopus",
+	.src_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 8000,
+	},
+	.dst_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.format = "opus",
+	.newpvt = lintoopus_new,
+	.framein = lintoopus_framein,
+	.frameout = lintoopus_frameout,
+	.destroy = lintoopus_destroy,
+	.sample = slin8_sample,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = BUFFER_SAMPLES,
+	.buf_size = BUFFER_SAMPLES * 2,
 };
 
 static struct ast_translator opustolin12 = {
-        .table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 1,
-        .name = "opustolin12",
-        .src_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .dst_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 12000,
-        },
-        .format = "slin12",
-        .newpvt = opustolin_new,
-        .framein = opustolin_framein,
-        .destroy = opustolin_destroy,
-        .sample = opus_sample,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = (BUFFER_SAMPLES / (48000 / 12000)) * 2, /* because of possible FEC */
-        .buf_size = (BUFFER_SAMPLES / (48000 / 12000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
-        .native_plc = 1,
+	.table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 1,
+	.name = "opustolin12",
+	.src_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.dst_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 12000,
+	},
+	.format = "slin12",
+	.newpvt = opustolin_new,
+	.framein = opustolin_framein,
+	.destroy = opustolin_destroy,
+	.sample = opus_sample,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = (BUFFER_SAMPLES / (48000 / 12000)) * 2, /* because of possible FEC */
+	.buf_size = (BUFFER_SAMPLES / (48000 / 12000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
+	.native_plc = 1,
 };
 
 static struct ast_translator lin12toopus = {
-        .table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 1,
-        .name = "lin12toopus",
-        .src_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 12000,
-        },
-        .dst_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .format = "opus",
-        .newpvt = lintoopus_new,
-        .framein = lintoopus_framein,
-        .frameout = lintoopus_frameout,
-        .destroy = lintoopus_destroy,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = BUFFER_SAMPLES,
-        .buf_size = BUFFER_SAMPLES * 2,
+	.table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 1,
+	.name = "lin12toopus",
+	.src_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 12000,
+	},
+	.dst_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.format = "opus",
+	.newpvt = lintoopus_new,
+	.framein = lintoopus_framein,
+	.frameout = lintoopus_frameout,
+	.destroy = lintoopus_destroy,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = BUFFER_SAMPLES,
+	.buf_size = BUFFER_SAMPLES * 2,
 };
 
 static struct ast_translator opustolin16 = {
-        .table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 2,
-        .name = "opustolin16",
-        .src_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .dst_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 16000,
-        },
-        .format = "slin16",
-        .newpvt = opustolin_new,
-        .framein = opustolin_framein,
-        .destroy = opustolin_destroy,
-        .sample = opus_sample,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = (BUFFER_SAMPLES / (48000 / 16000)) * 2, /* because of possible FEC */
-        .buf_size = (BUFFER_SAMPLES / (48000 / 16000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
-        .native_plc = 1,
+	.table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 2,
+	.name = "opustolin16",
+	.src_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.dst_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 16000,
+	},
+	.format = "slin16",
+	.newpvt = opustolin_new,
+	.framein = opustolin_framein,
+	.destroy = opustolin_destroy,
+	.sample = opus_sample,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = (BUFFER_SAMPLES / (48000 / 16000)) * 2, /* because of possible FEC */
+	.buf_size = (BUFFER_SAMPLES / (48000 / 16000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
+	.native_plc = 1,
 };
 
 static struct ast_translator lin16toopus = {
-        .table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 2,
-        .name = "lin16toopus",
-        .src_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 16000,
-        },
-        .dst_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .format = "opus",
-        .newpvt = lintoopus_new,
-        .framein = lintoopus_framein,
-        .frameout = lintoopus_frameout,
-        .destroy = lintoopus_destroy,
-        .sample = slin16_sample,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = BUFFER_SAMPLES,
-        .buf_size = BUFFER_SAMPLES * 2,
+	.table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 2,
+	.name = "lin16toopus",
+	.src_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 16000,
+	},
+	.dst_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.format = "opus",
+	.newpvt = lintoopus_new,
+	.framein = lintoopus_framein,
+	.frameout = lintoopus_frameout,
+	.destroy = lintoopus_destroy,
+	.sample = slin16_sample,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = BUFFER_SAMPLES,
+	.buf_size = BUFFER_SAMPLES * 2,
 };
 
 static struct ast_translator opustolin24 = {
-        .table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 4,
-        .name = "opustolin24",
-        .src_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .dst_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 24000,
-        },
-        .format = "slin24",
-        .newpvt = opustolin_new,
-        .framein = opustolin_framein,
-        .destroy = opustolin_destroy,
-        .sample = opus_sample,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = (BUFFER_SAMPLES / (48000 / 24000)) * 2, /* because of possible FEC */
-        .buf_size = (BUFFER_SAMPLES / (48000 / 24000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
-        .native_plc = 1,
+	.table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 4,
+	.name = "opustolin24",
+	.src_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.dst_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 24000,
+	},
+	.format = "slin24",
+	.newpvt = opustolin_new,
+	.framein = opustolin_framein,
+	.destroy = opustolin_destroy,
+	.sample = opus_sample,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = (BUFFER_SAMPLES / (48000 / 24000)) * 2, /* because of possible FEC */
+	.buf_size = (BUFFER_SAMPLES / (48000 / 24000)) * MAX_CHANNELS * sizeof(opus_int16) * 2,
+	.native_plc = 1,
 };
 
 static struct ast_translator lin24toopus = {
-        .table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 4,
-        .name = "lin24toopus",
-        .src_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 24000,
-        },
-        .dst_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .format = "opus",
-        .newpvt = lintoopus_new,
-        .framein = lintoopus_framein,
-        .frameout = lintoopus_frameout,
-        .destroy = lintoopus_destroy,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = BUFFER_SAMPLES,
-        .buf_size = BUFFER_SAMPLES * 2,
+	.table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 4,
+	.name = "lin24toopus",
+	.src_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 24000,
+	},
+	.dst_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.format = "opus",
+	.newpvt = lintoopus_new,
+	.framein = lintoopus_framein,
+	.frameout = lintoopus_frameout,
+	.destroy = lintoopus_destroy,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = BUFFER_SAMPLES,
+	.buf_size = BUFFER_SAMPLES * 2,
 };
 
 static struct ast_translator opustolin48 = {
-        .table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 8,
-        .name = "opustolin48",
-        .src_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .dst_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .format = "slin48",
-        .newpvt = opustolin_new,
-        .framein = opustolin_framein,
-        .destroy = opustolin_destroy,
-        .sample = opus_sample,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = BUFFER_SAMPLES * 2, /* twice, because of possible FEC */
-        .buf_size = BUFFER_SAMPLES * MAX_CHANNELS * sizeof(opus_int16) * 2,
-        .native_plc = 1,
+	.table_cost = AST_TRANS_COST_LY_LL_ORIGSAMP - 8,
+	.name = "opustolin48",
+	.src_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.dst_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.format = "slin48",
+	.newpvt = opustolin_new,
+	.framein = opustolin_framein,
+	.destroy = opustolin_destroy,
+	.sample = opus_sample,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = BUFFER_SAMPLES * 2, /* twice, because of possible FEC */
+	.buf_size = BUFFER_SAMPLES * MAX_CHANNELS * sizeof(opus_int16) * 2,
+	.native_plc = 1,
 };
 
 static struct ast_translator lin48toopus = {
-        .table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 8,
-        .name = "lin48toopus",
-        .src_codec = {
-                .name = "slin",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .dst_codec = {
-                .name = "opus",
-                .type = AST_MEDIA_TYPE_AUDIO,
-                .sample_rate = 48000,
-        },
-        .format = "opus",
-        .newpvt = lintoopus_new,
-        .framein = lintoopus_framein,
-        .frameout = lintoopus_frameout,
-        .destroy = lintoopus_destroy,
-        .desc_size = sizeof(struct opus_coder_pvt),
-        .buffer_samples = BUFFER_SAMPLES,
-        .buf_size = BUFFER_SAMPLES * 2,
+	.table_cost = AST_TRANS_COST_LL_LY_ORIGSAMP - 8,
+	.name = "lin48toopus",
+	.src_codec = {
+		.name = "slin",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.dst_codec = {
+		.name = "opus",
+		.type = AST_MEDIA_TYPE_AUDIO,
+		.sample_rate = 48000,
+	},
+	.format = "opus",
+	.newpvt = lintoopus_new,
+	.framein = lintoopus_framein,
+	.frameout = lintoopus_frameout,
+	.destroy = lintoopus_destroy,
+	.desc_size = sizeof(struct opus_coder_pvt),
+	.buffer_samples = BUFFER_SAMPLES,
+	.buf_size = BUFFER_SAMPLES * 2,
 };
 
 static struct ast_cli_entry cli[] = {
-	AST_CLI_DEFINE(handle_cli_opus_show, "Display Opus codec utilization.")
-};
+	AST_CLI_DEFINE(handle_cli_opus_show, "Display Opus codec utilization.")};
 
 static int opus_samples(struct ast_frame *frame)
 {
@@ -872,85 +953,117 @@ static int opus_samples(struct ast_frame *frame)
 
 static int parse_config(int reload)
 {
-	struct ast_flags config_flags = { reload ? CONFIG_FLAG_FILEUNCHANGED : 0 };
+	struct ast_flags config_flags = {reload ? CONFIG_FLAG_FILEUNCHANGED : 0};
 	struct ast_config *cfg = ast_config_load("codecs.conf", config_flags);
 	struct ast_variable *var;
 	int i, res = 0;
 
-	if (cfg == CONFIG_STATUS_FILEMISSING || cfg == CONFIG_STATUS_FILEUNCHANGED || cfg == CONFIG_STATUS_FILEINVALID) {
+	if (cfg == CONFIG_STATUS_FILEMISSING || cfg == CONFIG_STATUS_FILEUNCHANGED || cfg == CONFIG_STATUS_FILEINVALID)
+	{
 		return res;
 	}
 
-	for (var = ast_variable_browse(cfg, "opus"); var; var = var->next) {
-		if (!strcasecmp(var->name, "complexity")) {
+	for (var = ast_variable_browse(cfg, "opus"); var; var = var->next)
+	{
+		if (!strcasecmp(var->name, "complexity"))
+		{
 			i = atoi(var->value);
-			if (i < 0 || i > 10) {
+			if (i < 0 || i > 10)
+			{
 				res = 1;
 				ast_log(LOG_ERROR, "complexity must be in 0-10\n");
 				break;
 			}
 			complexity = i;
-		} else if (!strcasecmp(var->name, "bitrate") || !strcasecmp(var->name, "max_average_bitrate")) {
-			if (!strcasecmp(var->value, "auto") || !strcasecmp(var->value, "max")) {
+		}
+		else if (!strcasecmp(var->name, "bitrate") || !strcasecmp(var->name, "max_average_bitrate"))
+		{
+			if (!strcasecmp(var->value, "auto") || !strcasecmp(var->value, "max"))
+			{
 				bitrate = CODEC_OPUS_DEFAULT_BITRATE;
-			} else {
+			}
+			else
+			{
 				i = atoi(var->value);
-				if (i < 500 || i > 512000) {
+				if (i < 500 || i > 512000)
+				{
 					res = 1;
 					ast_log(LOG_ERROR, "bitrate must be in 500-512000 or 'auto'/'max'\n");
 					break;
 				}
 				bitrate = i;
 			}
-		} else if (!strcasecmp(var->name, "fec")) {
+		}
+		else if (!strcasecmp(var->name, "fec"))
+		{
 			fec = ast_true(var->value);
-		} else if (!strcasecmp(var->name, "dtx")) {
+		}
+		else if (!strcasecmp(var->name, "dtx"))
+		{
 			dtx = ast_true(var->value);
-		} else if (!strcasecmp(var->name, "cbr")) {
+		}
+		else if (!strcasecmp(var->name, "cbr"))
+		{
 			cbr = ast_true(var->value);
-		} else if (!strcasecmp(var->name, "max_playback_rate") || !strcasecmp(var->name, "maxplaybackrate")) {
+		}
+		else if (!strcasecmp(var->name, "max_playback_rate") || !strcasecmp(var->name, "maxplaybackrate"))
+		{
 			i = atoi(var->value);
-			if (i < 8000 || i > 48000) {
+			if (i < 8000 || i > 48000)
+			{
 				res = 1;
 				ast_log(LOG_ERROR, "max_playback_rate must be in 8000-48000\n");
 				break;
 			}
 			max_playback_rate = i;
-		} else if (!strcasecmp(var->name, "packet_loss")) {
+		}
+		else if (!strcasecmp(var->name, "packet_loss"))
+		{
 			i = atoi(var->value);
-			if (i < -1 || i > 100) {
+			if (i < -1 || i > 100)
+			{
 				res = 1;
 				ast_log(LOG_ERROR, "packet_loss must be in -1-100\n");
 				break;
 			}
-			if (i == 0) {
+			if (i == 0)
+			{
 				ast_debug(1, "packet_loss=0 forces FEC for all packets (no loss estimation)\n");
 			}
 			packet_loss = i;
-		} else if (!strcasecmp(var->name, "max_bandwidth")) {
-			if (strcasecmp(var->value, "narrow") && 
-				strcasecmp(var->value, "medium") && 
-				strcasecmp(var->value, "wide") && 
-				strcasecmp(var->value, "super_wide") && 
-				strcasecmp(var->value, "full")) {
+		}
+		else if (!strcasecmp(var->name, "max_bandwidth"))
+		{
+			if (strcasecmp(var->value, "narrow") &&
+				strcasecmp(var->value, "medium") &&
+				strcasecmp(var->value, "wide") &&
+				strcasecmp(var->value, "super_wide") &&
+				strcasecmp(var->value, "full"))
+			{
 				res = 1;
 				ast_log(LOG_ERROR, "max_bandwidth must be one of: narrow, medium, wide, super_wide, full\n");
 				break;
 			}
 			ast_copy_string(max_bandwidth, var->value, sizeof(max_bandwidth));
-		} else if (!strcasecmp(var->name, "signal")) {
-			if (strcasecmp(var->value, "auto") && 
-				strcasecmp(var->value, "voice") && 
-				strcasecmp(var->value, "music")) {
+		}
+		else if (!strcasecmp(var->name, "signal"))
+		{
+			if (strcasecmp(var->value, "auto") &&
+				strcasecmp(var->value, "voice") &&
+				strcasecmp(var->value, "music"))
+			{
 				res = 1;
 				ast_log(LOG_ERROR, "signal must be one of: auto, voice, music\n");
 				break;
 			}
-			ast_copy_string(signal, var->value, sizeof(signal));
-		} else if (!strcasecmp(var->name, "application")) {
-			if (strcasecmp(var->value, "voip") && 
-				strcasecmp(var->value, "audio") && 
-				strcasecmp(var->value, "low_delay")) {
+			ast_copy_string(signal_type, var->value, sizeof(signal_type));
+		}
+		else if (!strcasecmp(var->name, "application"))
+		{
+			if (strcasecmp(var->value, "voip") &&
+				strcasecmp(var->value, "audio") &&
+				strcasecmp(var->value, "low_delay"))
+			{
 				res = 1;
 				ast_log(LOG_ERROR, "application must be one of: voip, audio, low_delay\n");
 				break;
@@ -965,12 +1078,13 @@ static int parse_config(int reload)
 
 static int reload(void)
 {
-	if (parse_config(1)) {
+	if (parse_config(1))
+	{
 		return AST_MODULE_LOAD_DECLINE;
 	}
-	
+
 	ast_verbose(VERBOSE_PREFIX_2 "Opus codec configuration reloaded\n");
-	
+
 	return AST_MODULE_LOAD_SUCCESS;
 }
 
@@ -1000,8 +1114,9 @@ static int unload_module(void)
 static int load_module(void)
 {
 	int res;
-	
-	if (parse_config(0)) {
+
+	if (parse_config(0))
+	{
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
@@ -1026,7 +1141,6 @@ static int load_module(void)
 }
 
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_DEFAULT, "Opus Coder/Decoder",
-	.load = load_module,
-	.unload = unload_module,
-	.reload = reload,
-	);
+				.load = load_module,
+				.unload = unload_module,
+				.reload = reload, );
