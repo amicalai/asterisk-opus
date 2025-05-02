@@ -6,11 +6,11 @@
 - Support for runtime configuration via codecs.conf
 - New parameters in configuration:
   - complexity
-  - maxaveragebitrate
+  - max_average_bitrate
   - fec
   - dtx
   - cbr
-  - maxplaybackrate
+  - max_playback_rate
   - loss_percent (for dynamic FEC)
 - Configuration hot reload capability via CLI command
 - Compatibility with Asterisk 22.3.x

@@ -20,7 +20,7 @@
 ; Values range from 500 to 512000, or 'auto'
 ; Common values: 8000 (low quality), 16000 (medium), 32000 (high)
 ; Default: 510000 ('auto')
-;maxaveragebitrate=20000
+;max_average_bitrate=20000
 
 ; Forward Error Correction for improved audio quality on lossy networks
 ; Values: yes / no
@@ -40,7 +40,7 @@
 ; Maximum playback rate limits the audio bandwidth used
 ; Values: 8000, 12000, 16000, 24000, 48000 (Hz)
 ; Default: 48000
-;maxplaybackrate=24000
+;max_playback_rate=24000
 
 ; Packet Loss Percentage Estimation
 ; Dynamically enables FEC based on estimated packet loss
@@ -54,8 +54,8 @@
 ; [opus]
 ; type=opus                ; Identifies this as an Opus codec
 ; complexity=8             ; Medium CPU usage
-; maxaveragebitrate=20000  ; 20 kbit/s average
-; maxplaybackrate=24000    ; Super wideband quality
+; max_average_bitrate=20000  ; 20 kbit/s average
+; max_playback_rate=24000  ; Super wideband quality
 ; cbr=no                   ; Use variable bitrate
 ; fec=yes                  ; Use forward error correction
 ; dtx=no                   ; Don't use discontinuous transmission

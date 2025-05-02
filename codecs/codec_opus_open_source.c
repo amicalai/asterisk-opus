@@ -74,11 +74,11 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: $")
 
 /* Configurable variables in codecs.conf */
 static int complexity = 10;              /* OPUS default value */
-static int maxbitrate = CODEC_OPUS_DEFAULT_BITRATE;
+static int max_average_bitrate = CODEC_OPUS_DEFAULT_BITRATE;
 static int fec = CODEC_OPUS_DEFAULT_FEC;
 static int dtx = CODEC_OPUS_DEFAULT_DTX;
 static int cbr = CODEC_OPUS_DEFAULT_CBR; /* 0 = VBR by default */
-static int maxplayrate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE;
+static int max_playback_rate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE;
 static int loss_percent = -1;            /* Default: not enabled */
 
 /* Sample frame data */
@@ -131,8 +131,8 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 {
 	struct opus_coder_pvt *opvt = pvt->pvt;
 	struct opus_attr *attr = pvt->explicit_dst ? ast_format_get_attribute_data(pvt->explicit_dst) : NULL;
-	const opus_int32 bitrate = attr ? attr->maxbitrate  : maxbitrate;
-	const int playrate    = attr ? attr->maxplayrate : maxplayrate;
+	const opus_int32 bitrate = attr ? attr->maxbitrate  : max_average_bitrate;
+	const int playrate    = attr ? attr->maxplayrate : max_playback_rate;
 	const int channels       = attr ? attr->stereo + 1  : CODEC_OPUS_DEFAULT_STEREO + 1;
 	const opus_int32 vbr     = attr ? !(attr->cbr)      : !cbr;
 	const opus_int32 use_fec = attr ? attr->fec         : fec;
@@ -571,8 +571,8 @@ static char *handle_cli_opus_show(struct ast_cli_entry *e, int cmd, struct ast_c
 	ast_cli(a->fd, "\nCurrent Opus Configuration:\n");
 	ast_cli(a->fd, "-------------------------\n");
 	ast_cli(a->fd, "Complexity:       %d\n", complexity);
-	ast_cli(a->fd, "Max Bitrate:      %d bit/s\n", maxbitrate);
-	ast_cli(a->fd, "Max Playback Rate: %d Hz\n", maxplayrate);
+	ast_cli(a->fd, "Max Bitrate:      %d bit/s\n", max_average_bitrate);
+	ast_cli(a->fd, "Max Playback Rate: %d Hz\n", max_playback_rate);
 	ast_cli(a->fd, "FEC:              %s\n", fec ? "enabled" : "disabled");
 	ast_cli(a->fd, "DTX:              %s\n", dtx ? "enabled" : "disabled");
 	ast_cli(a->fd, "CBR:              %s\n", cbr ? "enabled" : "disabled (VBR)");
@@ -855,17 +855,19 @@ static int parse_config(int reload)
 				break;
 			}
 			complexity = i;
-		} else if (!strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE)) {
+		} else if (!strcasecmp(var->name, "max_average_bitrate") ||
+		           !strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE) ||
+		           !strcasecmp(var->name, "maxaveragebitrate")) {
 			if (!strcasecmp(var->value, "auto")) {
-				maxbitrate = CODEC_OPUS_DEFAULT_BITRATE;
+				max_average_bitrate = CODEC_OPUS_DEFAULT_BITRATE;
 			} else {
 				i = atoi(var->value);
 				if (i < 500 || i > 512000) {
 					res = 1;
-					ast_log(LOG_ERROR, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE " must be in 500-512000 or 'auto'\n");
+					ast_log(LOG_ERROR, "max_average_bitrate must be in 500-512000 or 'auto'\n");
 					break;
 				}
-				maxbitrate = i;
+				max_average_bitrate = i;
 			}
 		} else if (!strcasecmp(var->name, "fec")) {
 			fec = ast_true(var->value);
@@ -873,16 +875,16 @@ static int parse_config(int reload)
 			dtx = ast_true(var->value);
 		} else if (!strcasecmp(var->name, "cbr")) {
 			cbr = ast_true(var->value);
-		} else if (!strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE) || 
-		           !strcasecmp(var->name, "max_playback_rate") ||
+		} else if (!strcasecmp(var->name, "max_playback_rate") || 
+		           !strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE) ||
 		           !strcasecmp(var->name, "maxplaybackrate")) {
 			i = atoi(var->value);
 			if (i < 8000 || i > 48000) {
 				res = 1;
-				ast_log(LOG_ERROR, CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE " must be in 8000-48000\n");
+				ast_log(LOG_ERROR, "max_playback_rate must be in 8000-48000\n");
 				break;
 			}
-			maxplayrate = i;
+			max_playback_rate = i;
 		} else if (!strcasecmp(var->name, "loss_percent")) {
 			i = atoi(var->value);
 			if (i < -1 || i > 100) {
