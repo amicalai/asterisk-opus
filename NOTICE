@@ -1,0 +1,27 @@
+Asterisk Opus Module
+Copyright (C) 2014 Lorenzo Miniero
+Copyright (C) 2023-2024 Yoann Vanitou, Amical AI
+
+This project is a fork of the open source Asterisk Opus module originally 
+created by Lorenzo Miniero and enhanced by several contributors over time.
+
+The original code is available at:
+https://github.com/traud/asterisk-opus
+
+The current fork is maintained at:
+https://github.com/amicalai/asterisk-opus
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+The complete text of the GPL license can be found in the LICENSE file.
+
+---
+
+Additional contributors:
+- Opus team (http://www.opus-codec.org/contact/)
+- Ron Lee (packaging the libraries for Debian/Ubuntu)
+- Tzafrir Cohen (drove the pass-through support for Asterisk 13)
+- Sean Bright (ported the transcoding code to Asterisk 13) 

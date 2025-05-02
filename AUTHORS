@@ -1,0 +1,16 @@
+# Original Authors and Contributors
+
+* Opus team (http://www.opus-codec.org/contact/)
+* Ron Lee - packaging the libraries for Debian/Ubuntu
+* Lorenzo Miniero <lorenzo@meetecho.com> - created the original code for Asterisk 11
+* Tzafrir Cohen - drove the pass-through support for Asterisk 13
+* Sean Bright - ported the transcoding code to Asterisk 13, maintained until 13.11
+
+# Fork Maintainers
+
+* Yoann Vanitou <yvanitou@amical-ai.com> - Amical AI (https://amical-ai.com)
+  - Added support for codecs.conf configuration
+  - Added packet loss estimation parameter
+  - Added configuration reload capability
+  - Updated compatibility for Asterisk 22.3.x
+  - Enhanced CLI output 

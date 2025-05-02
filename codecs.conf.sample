@@ -1,0 +1,49 @@
+;
+; Codec Configuration
+;
+; This file defines codec-specific configuration settings.
+;
+; Copyright (C) 2023-2024, Yoann Vanitou <yvanitou@amical-ai.com>
+; Licensed under GNU General Public License v2
+;
+
+;
+; The 'opus' section configures Opus codec-specific options.
+;
+;[opus]
+;
+; Complexity affects encoding quality and CPU usage
+; Values range from 0 to 10 (low complexity to high complexity)
+; Default: 10
+;complexity=10
+;
+; Maximum average bitrate (bits per second)
+; Values range from 500 to 512000
+; Default: 510000
+;maxaveragebitrate=20000
+;
+; Forward Error Correction for improved audio quality on lossy networks
+; Values: yes / no
+; Default: yes
+;fec=yes
+;
+; Discontinuous Transmission (DTX) for reduced bandwidth during silence
+; Values: yes / no
+; Default: no
+;dtx=no
+;
+; Constant Bitrate Mode (CBR) instead of Variable Bitrate Mode (VBR)
+; Values: yes / no
+; Default: no
+;cbr=no
+;
+; Maximum playback rate limits the audio bandwidth used
+; Values: 8000, 12000, 16000, 24000, 48000 (Hz)
+; Default: 48000
+;maxplaybackrate=24000
+;
+; Packet Loss Percentage Estimation
+; Dynamically enables FEC based on packet loss
+; Values: 0-100 (percent)
+; Default: not enabled (-1)
+;loss_percent=-1
