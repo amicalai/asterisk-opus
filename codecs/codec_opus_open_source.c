@@ -73,13 +73,16 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: $")
 #define	OPUS_SAMPLES	960
 
 /* Configurable variables in codecs.conf */
-static int complexity = 10;              /* OPUS default value */
-static int max_average_bitrate = CODEC_OPUS_DEFAULT_BITRATE;
-static int fec = CODEC_OPUS_DEFAULT_FEC;
-static int dtx = CODEC_OPUS_DEFAULT_DTX;
-static int cbr = CODEC_OPUS_DEFAULT_CBR; /* 0 = VBR by default */
-static int max_playback_rate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE;
-static int loss_percent = -1;            /* Default: not enabled */
+static int complexity = 10;              /* Computational complexity (0-10) */
+static int bitrate = CODEC_OPUS_DEFAULT_BITRATE; /* "auto" = 510000 */
+static int fec = CODEC_OPUS_DEFAULT_FEC;  /* Forward Error Correction */
+static int dtx = CODEC_OPUS_DEFAULT_DTX;  /* Discontinuous Transmission */
+static int cbr = CODEC_OPUS_DEFAULT_CBR;  /* Constant Bit Rate (0=VBR) */
+static int max_playback_rate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE; /* Max sampling rate */
+static int packet_loss = -1;             /* Packet loss percentage (-1=disabled, 0-100) */
+static char max_bandwidth[16] = "full";  /* narrow, medium, wide, super_wide, full */
+static char signal[8] = "auto";          /* auto, voice, music */
+static char application[12] = "voip";    /* voip, audio, low_delay */
 
 /* Sample frame data */
 #include "asterisk/slin.h"
@@ -131,23 +134,44 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 {
 	struct opus_coder_pvt *opvt = pvt->pvt;
 	struct opus_attr *attr = pvt->explicit_dst ? ast_format_get_attribute_data(pvt->explicit_dst) : NULL;
-	const opus_int32 bitrate = attr ? attr->maxbitrate  : max_average_bitrate;
-	const int playrate    = attr ? attr->maxplayrate : max_playback_rate;
-	const int channels       = attr ? attr->stereo + 1  : CODEC_OPUS_DEFAULT_STEREO + 1;
-	const opus_int32 vbr     = attr ? !(attr->cbr)      : !cbr;
-	const opus_int32 use_fec = attr ? attr->fec         : fec;
-	const opus_int32 use_dtx = attr ? attr->dtx         : dtx;
-	const int application    = OPUS_APPLICATION_VOIP;
+	const opus_int32 bitrate_val = attr ? attr->maxbitrate : bitrate;
+	const int playrate = attr ? attr->maxplayrate : max_playback_rate;
+	const int channels = attr ? attr->stereo + 1 : CODEC_OPUS_DEFAULT_STEREO + 1;
+	const opus_int32 vbr = attr ? !(attr->cbr) : !cbr;
+	const opus_int32 use_fec = attr ? attr->fec : fec;
+	const opus_int32 use_dtx = attr ? attr->dtx : dtx;
+	int app;
+	
+	/* Set application type based on configuration */
+	if (!strcasecmp(application, "audio")) {
+		app = OPUS_APPLICATION_AUDIO;
+	} else if (!strcasecmp(application, "low_delay")) {
+		app = OPUS_APPLICATION_RESTRICTED_LOWDELAY;
+	} else {
+		app = OPUS_APPLICATION_VOIP;
+	}
+	
 	int status = 0;
 
-	opvt->opus = opus_encoder_create(sampling_rate, channels, application, &status);
+	opvt->opus = opus_encoder_create(sampling_rate, channels, app, &status);
 
 	if (status != OPUS_OK) {
 		ast_log(LOG_ERROR, "Error creating the Opus encoder: %s\n", opus_strerror(status));
 		return -1;
 	}
 
-	if (sampling_rate <= 8000 || playrate <= 8000) {
+	/* Priorité à l'option explicite max_bandwidth */
+	if (!strcasecmp(max_bandwidth, "narrow")) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
+	} else if (!strcasecmp(max_bandwidth, "medium")) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_MEDIUMBAND));
+	} else if (!strcasecmp(max_bandwidth, "wide")) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+	} else if (!strcasecmp(max_bandwidth, "super_wide")) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_SUPERWIDEBAND));
+	}
+	/* sinon on utilise la logique basée sur sampling_rate/playrate */
+	else if (sampling_rate <= 8000 || playrate <= 8000) {
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
 	} else if (sampling_rate <= 12000 || playrate <= 12000) {
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_MEDIUMBAND));
@@ -156,9 +180,17 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 	} else if (sampling_rate <= 24000 || playrate <= 24000) {
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_SUPERWIDEBAND));
 	} /* else we use the default: OPUS_BANDWIDTH_FULLBAND */
+	
+	/* Set the signal type */
+	if (!strcasecmp(signal, "voice")) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+	} else if (!strcasecmp(signal, "music")) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+	}
+	/* Pour "auto", ne rien faire - c'est le comportement par défaut */
 
-	if (0 < bitrate && bitrate != 510000) {
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_BITRATE(bitrate));
+	if (bitrate_val > 0 && bitrate_val != 510000) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_BITRATE(bitrate_val));
 	} /* else we use the default: OPUS_AUTO */
 	
 	if (complexity != 10) {
@@ -170,8 +202,8 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 	status = opus_encoder_ctl(opvt->opus, OPUS_SET_DTX(use_dtx));
 	
 	/* Set packet loss percentage if enabled */
-	if (loss_percent >= 0) {
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_PACKET_LOSS_PERC(loss_percent));
+	if (packet_loss >= 0) {
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_PACKET_LOSS_PERC(packet_loss));
 	}
 
 	opvt->sampling_rate = sampling_rate;
@@ -571,13 +603,16 @@ static char *handle_cli_opus_show(struct ast_cli_entry *e, int cmd, struct ast_c
 	ast_cli(a->fd, "\nCurrent Opus Configuration:\n");
 	ast_cli(a->fd, "-------------------------\n");
 	ast_cli(a->fd, "Complexity:       %d\n", complexity);
-	ast_cli(a->fd, "Max Bitrate:      %d bit/s\n", max_average_bitrate);
+	ast_cli(a->fd, "Bitrate:          %d bit/s\n", bitrate);
 	ast_cli(a->fd, "Max Playback Rate: %d Hz\n", max_playback_rate);
+	ast_cli(a->fd, "Max Bandwidth:    %s\n", max_bandwidth);
+	ast_cli(a->fd, "Signal Type:      %s\n", signal);
+	ast_cli(a->fd, "Application:      %s\n", application);
 	ast_cli(a->fd, "FEC:              %s\n", fec ? "enabled" : "disabled");
 	ast_cli(a->fd, "DTX:              %s\n", dtx ? "enabled" : "disabled");
 	ast_cli(a->fd, "CBR:              %s\n", cbr ? "enabled" : "disabled (VBR)");
-	if (loss_percent >= 0) {
-		ast_cli(a->fd, "Packet Loss:      %d%%\n", loss_percent);
+	if (packet_loss >= 0) {
+		ast_cli(a->fd, "Packet Loss:      %d%%\n", packet_loss);
 	} else {
 		ast_cli(a->fd, "Packet Loss:      disabled\n");
 	}
@@ -851,23 +886,21 @@ static int parse_config(int reload)
 			i = atoi(var->value);
 			if (i < 0 || i > 10) {
 				res = 1;
-				ast_log(LOG_ERROR, "Complexity must be in 0-10\n");
+				ast_log(LOG_ERROR, "complexity must be in 0-10\n");
 				break;
 			}
 			complexity = i;
-		} else if (!strcasecmp(var->name, "max_average_bitrate") ||
-		           !strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE) ||
-		           !strcasecmp(var->name, "maxaveragebitrate")) {
-			if (!strcasecmp(var->value, "auto")) {
-				max_average_bitrate = CODEC_OPUS_DEFAULT_BITRATE;
+		} else if (!strcasecmp(var->name, "bitrate") || !strcasecmp(var->name, "max_average_bitrate")) {
+			if (!strcasecmp(var->value, "auto") || !strcasecmp(var->value, "max")) {
+				bitrate = CODEC_OPUS_DEFAULT_BITRATE;
 			} else {
 				i = atoi(var->value);
 				if (i < 500 || i > 512000) {
 					res = 1;
-					ast_log(LOG_ERROR, "max_average_bitrate must be in 500-512000 or 'auto'\n");
+					ast_log(LOG_ERROR, "bitrate must be in 500-512000 or 'auto'/'max'\n");
 					break;
 				}
-				max_average_bitrate = i;
+				bitrate = i;
 			}
 		} else if (!strcasecmp(var->name, "fec")) {
 			fec = ast_true(var->value);
@@ -875,9 +908,7 @@ static int parse_config(int reload)
 			dtx = ast_true(var->value);
 		} else if (!strcasecmp(var->name, "cbr")) {
 			cbr = ast_true(var->value);
-		} else if (!strcasecmp(var->name, "max_playback_rate") || 
-		           !strcasecmp(var->name, CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE) ||
-		           !strcasecmp(var->name, "maxplaybackrate")) {
+		} else if (!strcasecmp(var->name, "max_playback_rate") || !strcasecmp(var->name, "maxplaybackrate")) {
 			i = atoi(var->value);
 			if (i < 8000 || i > 48000) {
 				res = 1;
@@ -885,17 +916,46 @@ static int parse_config(int reload)
 				break;
 			}
 			max_playback_rate = i;
-		} else if (!strcasecmp(var->name, "loss_percent")) {
+		} else if (!strcasecmp(var->name, "packet_loss")) {
 			i = atoi(var->value);
 			if (i < -1 || i > 100) {
 				res = 1;
-				ast_log(LOG_ERROR, "loss_percent must be in -1-100\n");
+				ast_log(LOG_ERROR, "packet_loss must be in -1-100\n");
 				break;
 			}
 			if (i == 0) {
-				ast_debug(1, "loss_percent=0 forces FEC for all packets (no loss estimation)\n");
+				ast_debug(1, "packet_loss=0 forces FEC for all packets (no loss estimation)\n");
 			}
-			loss_percent = i;
+			packet_loss = i;
+		} else if (!strcasecmp(var->name, "max_bandwidth")) {
+			if (strcasecmp(var->value, "narrow") && 
+				strcasecmp(var->value, "medium") && 
+				strcasecmp(var->value, "wide") && 
+				strcasecmp(var->value, "super_wide") && 
+				strcasecmp(var->value, "full")) {
+				res = 1;
+				ast_log(LOG_ERROR, "max_bandwidth must be one of: narrow, medium, wide, super_wide, full\n");
+				break;
+			}
+			ast_copy_string(max_bandwidth, var->value, sizeof(max_bandwidth));
+		} else if (!strcasecmp(var->name, "signal")) {
+			if (strcasecmp(var->value, "auto") && 
+				strcasecmp(var->value, "voice") && 
+				strcasecmp(var->value, "music")) {
+				res = 1;
+				ast_log(LOG_ERROR, "signal must be one of: auto, voice, music\n");
+				break;
+			}
+			ast_copy_string(signal, var->value, sizeof(signal));
+		} else if (!strcasecmp(var->name, "application")) {
+			if (strcasecmp(var->value, "voip") && 
+				strcasecmp(var->value, "audio") && 
+				strcasecmp(var->value, "low_delay")) {
+				res = 1;
+				ast_log(LOG_ERROR, "application must be one of: voip, audio, low_delay\n");
+				break;
+			}
+			ast_copy_string(application, var->value, sizeof(application));
 		}
 	}
 	ast_config_destroy(cfg);

@@ -15,12 +15,15 @@ This version now adds support for the configuration file `codecs.conf`, allowing
 | Parameter | Description | Valid Values | Default |
 |-----------|-------------|----------------|--------|
 | `complexity` | Quality/CPU tradeoff | 0-10 (10=best quality) | 10 |
-| `max_average_bitrate` | Maximum bitrate | 500-512000 bit/s or 'auto' | 510000 |
+| `bitrate` | Maximum bitrate | 500-512000 bit/s or 'auto' | 510000 |
 | `fec` | Forward Error Correction | yes/no | yes |
 | `dtx` | Discontinuous Transmission | yes/no | no |
 | `cbr` | Constant Bitrate | yes/no | no (VBR active) |
 | `max_playback_rate` | Maximum sampling rate | 8000, 12000, 16000, 24000, 48000 | 48000 |
-| `loss_percent` | Packet loss percentage for FEC | -1 (disabled) or 0-100 | -1 |
+| `packet_loss` | Packet loss percentage for FEC | -1 (disabled) or 0-100 | -1 |
+| `max_bandwidth` | Audio frequency range limit | narrow, medium, wide, super_wide, full | full |
+| `signal` | Signal type hint | auto, voice, music | auto |
+| `application` | Encoder optimization | voip, audio, low_delay | voip |
 
 Example configuration to save bandwidth:
 ```
@@ -29,6 +32,8 @@ max_average_bitrate=16000
 max_playback_rate=16000
 fec=yes
 dtx=yes
+max_bandwidth=wide
+signal=voice
 ```
 
 You can reload the configuration without restarting Asterisk:
@@ -41,9 +46,7 @@ asterisk -rx "module reload codec_opus_open_source.so"
 - Existing calls will continue using their original configuration and won't be affected by reload
 - SDP parameters negotiated with remote clients always take precedence over local configuration
 - To view active parameters, use `asterisk -rx "opus show"`
-- The parameter `max_playback_rate` can be also specified as `maxplaybackrate` (alternative syntax)
-- The parameter `max_average_bitrate` can be also specified as `maxaveragebitrate` (alternative syntax)
-- Setting `loss_percent=0` will force FEC for all packets (different from disabling it with -1)
+- Setting `packet_loss=0` will force FEC for all packets (different from disabling it with -1)
 
 See the included `codecs.conf.sample` for more details and a complete configuration example.
 

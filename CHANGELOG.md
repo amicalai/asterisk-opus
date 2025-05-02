@@ -6,12 +6,15 @@
 - Support for runtime configuration via codecs.conf
 - New parameters in configuration:
   - complexity
-  - max_average_bitrate
+  - bitrate
   - fec
   - dtx
   - cbr
   - max_playback_rate
-  - loss_percent (for dynamic FEC)
+  - packet_loss (for dynamic FEC)
+  - max_bandwidth (narrow, medium, wide, super_wide, full)
+  - signal (auto, voice, music)
+  - application (voip, audio, low_delay)
 - Configuration hot reload capability via CLI command
 - Compatibility with Asterisk 22.3.x
 - Enhanced CLI output showing current codec configuration
@@ -20,6 +23,9 @@
 - Updated installation instructions for modern Asterisk versions
 - Improved documentation with configuration examples
 - Made all configuration parameters match official Asterisk format
+- Standardized parameter naming convention to use underscores
 
 ### Fixed
-- Addressed various compatibility issues with newer Asterisk versions 
+- Addressed various compatibility issues with newer Asterisk versions
+- Fixed CBR/VBR inversion issue in default value initialization
+- Added proper validation for all parameter values 

@@ -2,6 +2,7 @@
  * Asterisk -- An open source telephony toolkit.
  *
  * Copyright (C) 2013, Digium, Inc.
+ * Copyright (C) 2023-2024, Yoann Vanitou <yvanitou@amical-ai.com>
  *
  * Lorenzo Miniero <lorenzo@meetecho.com>
  *
@@ -26,7 +27,9 @@
 #define _AST_FORMAT_OPUS_H_
 
 /*! \brief Maximum sampling rate an endpoint is capable of receiving */
-#define CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE "maxplaybackrate"
+#define CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE "max_playback_rate"
+/*! \brief An alias for max_playback_rate (used in older versions) */
+#define CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE_LEGACY "maxplaybackrate"
 /*! \brief An alias for maxplaybackrate (used in older versions) */
 #define CODEC_OPUS_ATTR_MAX_CODED_AUDIO_BANDWIDTH "maxcodedaudiobandwidth"
 /*! \brief Maximum sampling rate an endpoint is capable of sending */
@@ -36,7 +39,9 @@
 /*! \brief Duration of packet (in milliseconds) */
 #define CODEC_OPUS_ATTR_PTIME "ptime"
 /*! \brief Maximum average received bit rate (in bits per second) */
-#define CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE "maxaveragebitrate"
+#define CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE "max_average_bitrate"
+/*! \brief An alias for max_average_bitrate (used in older versions) */
+#define CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE_LEGACY "maxaveragebitrate"
 /*! \brief Decode stereo (1) vs mono (0) */
 #define CODEC_OPUS_ATTR_STEREO "stereo"
 /*! \brief Likeliness of sender producing stereo (1) vs mono (0) */
@@ -47,6 +52,16 @@
 #define CODEC_OPUS_ATTR_FEC "useinbandfec"
 /*! \brief Use discontinuous transmission (1) or not (0) */
 #define CODEC_OPUS_ATTR_DTX "usedtx"
+/*! \brief Packet loss percentage for dynamic FEC */
+#define CODEC_OPUS_ATTR_PACKET_LOSS "packet_loss"
+/*! \brief Maximum bandwidth (narrow, medium, wide, super_wide, full) */
+#define CODEC_OPUS_ATTR_MAX_BANDWIDTH "max_bandwidth"
+/*! \brief Signal type (auto, voice, music) */
+#define CODEC_OPUS_ATTR_SIGNAL "signal"
+/*! \brief Application type (voip, audio, low_delay) */
+#define CODEC_OPUS_ATTR_APPLICATION "application"
+/*! \brief Computational complexity (0-10) */
+#define CODEC_OPUS_ATTR_COMPLEXITY "complexity"
 /*! \brief Custom data object */
 #define CODEC_OPUS_ATTR_DATA "data"
 
