@@ -15,7 +15,7 @@ This version now adds support for the configuration file `codecs.conf`, allowing
 | Parameter | Description | Valid Values | Default |
 |-----------|-------------|----------------|--------|
 | `complexity` | Quality/CPU tradeoff | 0-10 (10=best quality) | 10 |
-| `maxaveragebitrate` | Maximum bitrate | 500-512000 bit/s | 510000 |
+| `maxaveragebitrate` | Maximum bitrate | 500-512000 bit/s or 'auto' | 510000 |
 | `fec` | Forward Error Correction | yes/no | yes |
 | `dtx` | Discontinuous Transmission | yes/no | no |
 | `cbr` | Constant Bitrate | yes/no | no (VBR active) |
@@ -36,7 +36,15 @@ You can reload the configuration without restarting Asterisk:
 asterisk -rx "module reload codec_opus_open_source.so"
 ```
 
-See the included `codecs.conf.sample` for more details.
+**Important Notes:**
+- Configuration changes only apply to new encoding/decoding sessions
+- Existing calls will continue using their original configuration and won't be affected by reload
+- SDP parameters negotiated with remote clients always take precedence over local configuration
+- To view active parameters, use `asterisk -rx "opus show"`
+- The parameter `maxplaybackrate` can be also specified as `max_playback_rate` or `maxplaybackrate`
+- Setting `loss_percent=0` will force FEC for all packets (different from disabling it with -1)
+
+See the included `codecs.conf.sample` for more details and a complete configuration example.
 
 ## Installing
 This module is compatible with Asterisk 22.3.x and later versions. If you encounter any issues, please [report them](https://github.com/amicalai/asterisk-opus/issues)!
