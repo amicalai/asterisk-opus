@@ -34,7 +34,7 @@
 ;
 ; Constant Bitrate Mode (CBR) instead of Variable Bitrate Mode (VBR)
 ; Values: yes / no
-; Default: no
+; Default: no (VBR is used by default)
 ;cbr=no
 ;
 ; Maximum playback rate limits the audio bandwidth used
@@ -43,7 +43,8 @@
 ;maxplaybackrate=24000
 ;
 ; Packet Loss Percentage Estimation
-; Dynamically enables FEC based on packet loss
-; Values: 0-100 (percent)
-; Default: not enabled (-1)
+; Dynamically enables FEC based on estimated packet loss
+; Values: -1 (disabled), 0-100 (percent)
+; Default: -1 (disabled)
+; Note: Setting to 0 forces FEC for all packets regardless of loss
 ;loss_percent=-1

@@ -77,7 +77,7 @@ static int complexity = 10;              /* OPUS default value */
 static int maxbitrate = CODEC_OPUS_DEFAULT_BITRATE;
 static int fec = CODEC_OPUS_DEFAULT_FEC;
 static int dtx = CODEC_OPUS_DEFAULT_DTX;
-static int cbr = !CODEC_OPUS_DEFAULT_CBR; /* Inverse because OPUS uses VBR by default */
+static int cbr = CODEC_OPUS_DEFAULT_CBR; /* 0 = VBR by default */
 static int maxplayrate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE;
 static int loss_percent = -1;            /* Default: not enabled */
 
