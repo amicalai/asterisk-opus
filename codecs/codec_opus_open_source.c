@@ -2,11 +2,10 @@
  * Asterisk -- An open source telephony toolkit.
  *
  * Copyright (C) 2014, Lorenzo Miniero
- * Copyright (C) 2023-2024, Yoann Vanitou <yvanitou@amical-ai.com>
+ * Copyright (C) 2023-2025, Amical
  *
  * Lorenzo Miniero <lorenzo@meetecho.com>
- *
- * Additional modifications by Yoann Vanitou:
+ * Additional modifications by Yoann Vanitou <yvanitou@amical-ai.com>
  * - Added support for codecs.conf configuration
  * - Added packet loss estimation parameter
  * - Added configuration reload capability
@@ -72,17 +71,36 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: $")
 #define MAX_CHANNELS 2
 #define OPUS_SAMPLES 960
 
-/* Configurable variables in codecs.conf */
-static int complexity = 10;											 /* Computational complexity (0-10) */
-static int bitrate = CODEC_OPUS_DEFAULT_BITRATE;					 /* "auto" = 510000 */
-static int fec = CODEC_OPUS_DEFAULT_FEC;							 /* Forward Error Correction */
-static int dtx = CODEC_OPUS_DEFAULT_DTX;							 /* Discontinuous Transmission */
-static int cbr = CODEC_OPUS_DEFAULT_CBR;							 /* Constant Bit Rate (0=VBR) */
-static int max_playback_rate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE; /* Max sampling rate */
-static int packet_loss = -1;										 /* Packet loss percentage (-1=disabled, 0-100) */
-static char max_bandwidth[16] = "full";								 /* narrow, medium, wide, super_wide, full */
-static char signal_type[8] = "auto";								 /* auto, voice, music */
-static char application[12] = "voip";								 /* voip, audio, low_delay */
+/* Configuration structure for thread-safe access */
+struct opus_config {
+	int complexity;           /* Computational complexity (0-10) */
+	opus_int32 bitrate;       /* "auto" = 510000 */
+	int fec;                  /* Forward Error Correction (0 or 1) */
+	int dtx;                  /* Discontinuous Transmission (0 or 1) */
+	int cbr;                  /* Constant Bit Rate (0=VBR, 1=CBR) */
+	int max_playback_rate;    /* Max sampling rate */
+	int packet_loss;          /* Packet loss percentage (-1=disabled, 0-100) */
+	char max_bandwidth[16];   /* narrow, medium, wide, super_wide, full */
+	char signal_type[8];      /* auto, voice, music */
+	char application[12];     /* voip, audio, low_delay */
+};
+
+/* Global configuration with default values */
+static struct opus_config config = {
+	.complexity = 10,
+	.bitrate = CODEC_OPUS_DEFAULT_BITRATE,
+	.fec = CODEC_OPUS_DEFAULT_FEC,
+	.dtx = CODEC_OPUS_DEFAULT_DTX,
+	.cbr = CODEC_OPUS_DEFAULT_CBR,
+	.max_playback_rate = CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE,
+	.packet_loss = -1,
+	.max_bandwidth = "full",
+	.signal_type = "auto",
+	.application = "voip"
+};
+
+/* RWLock to protect configuration access during reload */
+static ast_rwlock_t config_lock;
 
 /* Sample frame data */
 #include "asterisk/slin.h"
@@ -137,20 +155,35 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 {
 	struct opus_coder_pvt *opvt = pvt->pvt;
 	struct opus_attr *attr = pvt->explicit_dst ? ast_format_get_attribute_data(pvt->explicit_dst) : NULL;
-	const opus_int32 bitrate_val = attr ? attr->maxbitrate : bitrate;
-	const int playrate = attr ? attr->maxplayrate : max_playback_rate;
-	const int channels = attr ? attr->stereo + 1 : CODEC_OPUS_DEFAULT_STEREO + 1;
-	const opus_int32 vbr = attr ? !(attr->cbr) : !cbr;
-	const opus_int32 use_fec = attr ? attr->fec : fec;
-	const opus_int32 use_dtx = attr ? attr->dtx : dtx;
+	struct opus_config local_config;
+	opus_int32 bitrate_val;
+	int playrate;
+	int channels;
+	opus_int32 vbr;
+	opus_int32 use_fec;
+	opus_int32 use_dtx;
 	int app;
+	int status = 0;
+
+	/* Take a snapshot of the configuration under read lock */
+	ast_rwlock_rdlock(&config_lock);
+	local_config = config;
+	ast_rwlock_unlock(&config_lock);
+
+	/* Use SDP attributes if available, otherwise use local config */
+	bitrate_val = attr ? attr->maxbitrate : local_config.bitrate;
+	playrate = attr ? attr->maxplayrate : local_config.max_playback_rate;
+	channels = attr ? attr->stereo + 1 : CODEC_OPUS_DEFAULT_STEREO + 1;
+	vbr = attr ? !(attr->cbr) : !local_config.cbr;
+	use_fec = attr ? attr->fec : local_config.fec;
+	use_dtx = attr ? attr->dtx : local_config.dtx;
 
 	/* Set application type based on configuration */
-	if (!strcasecmp(application, "audio"))
+	if (!strcasecmp(local_config.application, "audio"))
 	{
 		app = OPUS_APPLICATION_AUDIO;
 	}
-	else if (!strcasecmp(application, "low_delay"))
+	else if (!strcasecmp(local_config.application, "low_delay"))
 	{
 		app = OPUS_APPLICATION_RESTRICTED_LOWDELAY;
 	}
@@ -158,8 +191,6 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 	{
 		app = OPUS_APPLICATION_VOIP;
 	}
-
-	int status = 0;
 
 	opvt->opus = opus_encoder_create(sampling_rate, channels, app, &status);
 
@@ -169,60 +200,69 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 		return -1;
 	}
 
-	/* Priorité à l'option explicite max_bandwidth */
-	if (!strcasecmp(max_bandwidth, "narrow"))
+	/* Priority to explicit max_bandwidth option */
+	if (!strcasecmp(local_config.max_bandwidth, "narrow"))
 	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
 	}
-	else if (!strcasecmp(max_bandwidth, "medium"))
+	else if (!strcasecmp(local_config.max_bandwidth, "medium"))
 	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_MEDIUMBAND));
 	}
-	else if (!strcasecmp(max_bandwidth, "wide"))
+	else if (!strcasecmp(local_config.max_bandwidth, "wide"))
 	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
 	}
-	else if (!strcasecmp(max_bandwidth, "super_wide"))
+	else if (!strcasecmp(local_config.max_bandwidth, "super_wide"))
 	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_SUPERWIDEBAND));
 	}
-	/* sinon on utilise la logique basée sur sampling_rate/playrate */
-	else if (sampling_rate <= 8000 || playrate <= 8000)
+	else if (!strcasecmp(local_config.max_bandwidth, "full"))
 	{
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
+		/* Explicit "full" setting: use fullband regardless of sampling rate */
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
 	}
-	else if (sampling_rate <= 12000 || playrate <= 12000)
+	else
 	{
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_MEDIUMBAND));
+		/* Fallback: use sampling_rate/playrate based logic for unrecognized values */
+		if (sampling_rate <= 8000 || playrate <= 8000)
+		{
+			status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
+		}
+		else if (sampling_rate <= 12000 || playrate <= 12000)
+		{
+			status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_MEDIUMBAND));
+		}
+		else if (sampling_rate <= 16000 || playrate <= 16000)
+		{
+			status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+		}
+		else if (sampling_rate <= 24000 || playrate <= 24000)
+		{
+			status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_SUPERWIDEBAND));
+		}
+		/* else we use the default: OPUS_BANDWIDTH_FULLBAND */
 	}
-	else if (sampling_rate <= 16000 || playrate <= 16000)
-	{
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
-	}
-	else if (sampling_rate <= 24000 || playrate <= 24000)
-	{
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_SUPERWIDEBAND));
-	} /* else we use the default: OPUS_BANDWIDTH_FULLBAND */
 
 	/* Set the signal type */
-	if (!strcasecmp(signal_type, "voice"))
+	if (!strcasecmp(local_config.signal_type, "voice"))
 	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
 	}
-	else if (!strcasecmp(signal_type, "music"))
+	else if (!strcasecmp(local_config.signal_type, "music"))
 	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
 	}
-	/* Pour "auto", ne rien faire - c'est le comportement par défaut */
+	/* For "auto", do nothing - this is the default behavior */
 
 	if (bitrate_val > 0 && bitrate_val != 510000)
 	{
 		status = opus_encoder_ctl(opvt->opus, OPUS_SET_BITRATE(bitrate_val));
 	} /* else we use the default: OPUS_AUTO */
 
-	if (complexity != 10)
+	if (local_config.complexity != 10)
 	{
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_COMPLEXITY(complexity));
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_COMPLEXITY(local_config.complexity));
 	}
 
 	status = opus_encoder_ctl(opvt->opus, OPUS_SET_VBR(vbr));
@@ -230,9 +270,9 @@ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
 	status = opus_encoder_ctl(opvt->opus, OPUS_SET_DTX(use_dtx));
 
 	/* Set packet loss percentage if enabled */
-	if (packet_loss >= 0)
+	if (local_config.packet_loss >= 0)
 	{
-		status = opus_encoder_ctl(opvt->opus, OPUS_SET_PACKET_LOSS_PERC(packet_loss));
+		status = opus_encoder_ctl(opvt->opus, OPUS_SET_PACKET_LOSS_PERC(local_config.packet_loss));
 	}
 
 	opvt->sampling_rate = sampling_rate;
@@ -657,6 +697,7 @@ static void opustolin_destroy(struct ast_trans_pvt *arg)
 static char *handle_cli_opus_show(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	struct codec_usage copy;
+	struct opus_config local_config;
 
 	switch (cmd)
 	{
@@ -677,22 +718,27 @@ static char *handle_cli_opus_show(struct ast_cli_entry *e, int cmd, struct ast_c
 
 	copy = usage;
 
+	/* Take a snapshot of configuration under read lock */
+	ast_rwlock_rdlock(&config_lock);
+	local_config = config;
+	ast_rwlock_unlock(&config_lock);
+
 	ast_cli(a->fd, "%d/%d encoders/decoders are in use.\n", copy.encoders, copy.decoders);
 
 	ast_cli(a->fd, "\nCurrent Opus Configuration:\n");
 	ast_cli(a->fd, "-------------------------\n");
-	ast_cli(a->fd, "Complexity:       %d\n", complexity);
-	ast_cli(a->fd, "Bitrate:          %d bit/s\n", bitrate);
-	ast_cli(a->fd, "Max Playback Rate: %d Hz\n", max_playback_rate);
-	ast_cli(a->fd, "Max Bandwidth:    %s\n", max_bandwidth);
-	ast_cli(a->fd, "Signal Type:      %s\n", signal_type);
-	ast_cli(a->fd, "Application:      %s\n", application);
-	ast_cli(a->fd, "FEC:              %s\n", fec ? "enabled" : "disabled");
-	ast_cli(a->fd, "DTX:              %s\n", dtx ? "enabled" : "disabled");
-	ast_cli(a->fd, "CBR:              %s\n", cbr ? "enabled" : "disabled (VBR)");
-	if (packet_loss >= 0)
+	ast_cli(a->fd, "Complexity:       %d\n", local_config.complexity);
+	ast_cli(a->fd, "Bitrate:          %d bit/s\n", local_config.bitrate);
+	ast_cli(a->fd, "Max Playback Rate: %d Hz\n", local_config.max_playback_rate);
+	ast_cli(a->fd, "Max Bandwidth:    %s\n", local_config.max_bandwidth);
+	ast_cli(a->fd, "Signal Type:      %s\n", local_config.signal_type);
+	ast_cli(a->fd, "Application:      %s\n", local_config.application);
+	ast_cli(a->fd, "FEC:              %s\n", local_config.fec ? "enabled" : "disabled");
+	ast_cli(a->fd, "DTX:              %s\n", local_config.dtx ? "enabled" : "disabled");
+	ast_cli(a->fd, "CBR:              %s\n", local_config.cbr ? "enabled" : "disabled (VBR)");
+	if (local_config.packet_loss >= 0)
 	{
-		ast_cli(a->fd, "Packet Loss:      %d%%\n", packet_loss);
+		ast_cli(a->fd, "Packet Loss:      %d%%\n", local_config.packet_loss);
 	}
 	else
 	{
@@ -956,81 +1002,133 @@ static int parse_config(int reload)
 	struct ast_flags config_flags = {reload ? CONFIG_FLAG_FILEUNCHANGED : 0};
 	struct ast_config *cfg = ast_config_load("codecs.conf", config_flags);
 	struct ast_variable *var;
-	int i, res = 0;
+	struct opus_config new_config = {0};  /* Zero-initialize for defensive programming */
+	int res = 0;
 
-	if (cfg == CONFIG_STATUS_FILEMISSING || cfg == CONFIG_STATUS_FILEUNCHANGED || cfg == CONFIG_STATUS_FILEINVALID)
+	/* Handle special config status values
+	 * Return codes: 0 = success (config loaded), 1 = error, 2 = no change needed */
+	if (cfg == CONFIG_STATUS_FILEINVALID)
 	{
-		return res;
+		ast_log(LOG_ERROR, "codecs.conf is malformed or invalid, using existing configuration\n");
+		return 1;
+	}
+	if (cfg == CONFIG_STATUS_FILEMISSING)
+	{
+		/* Missing file: use defaults on initial load, no action on reload */
+		return 2;
+	}
+	if (cfg == CONFIG_STATUS_FILEUNCHANGED)
+	{
+		/* File unchanged since last load: no action needed */
+		return 2;
 	}
 
+	/* Start with current config as base (parse-then-swap pattern) */
+	ast_rwlock_rdlock(&config_lock);
+	new_config = config;
+	ast_rwlock_unlock(&config_lock);
+
+	/* Parse all values into temporary config first */
 	for (var = ast_variable_browse(cfg, "opus"); var; var = var->next)
 	{
 		if (!strcasecmp(var->name, "complexity"))
 		{
-			i = atoi(var->value);
-			if (i < 0 || i > 10)
+			char *endptr;
+			long val = strtol(var->value, &endptr, 10);
+			if (endptr == var->value || *endptr != '\0')
+			{
+				res = 1;
+				ast_log(LOG_ERROR, "complexity must be a numeric value (got '%s')\n", var->value);
+				break;
+			}
+			if (val < 0 || val > 10)
 			{
 				res = 1;
 				ast_log(LOG_ERROR, "complexity must be in 0-10\n");
 				break;
 			}
-			complexity = i;
+			new_config.complexity = (int) val;
 		}
 		else if (!strcasecmp(var->name, "bitrate") || !strcasecmp(var->name, "max_average_bitrate"))
 		{
 			if (!strcasecmp(var->value, "auto") || !strcasecmp(var->value, "max"))
 			{
-				bitrate = CODEC_OPUS_DEFAULT_BITRATE;
+				new_config.bitrate = CODEC_OPUS_DEFAULT_BITRATE;
 			}
 			else
 			{
-				i = atoi(var->value);
-				if (i < 500 || i > 512000)
+				char *endptr;
+				long val = strtol(var->value, &endptr, 10);
+				if (endptr == var->value || *endptr != '\0')
+				{
+					res = 1;
+					ast_log(LOG_ERROR, "bitrate must be a numeric value or 'auto'/'max' (got '%s')\n", var->value);
+					break;
+				}
+				if (val < 500 || val > 512000)
 				{
 					res = 1;
 					ast_log(LOG_ERROR, "bitrate must be in 500-512000 or 'auto'/'max'\n");
 					break;
 				}
-				bitrate = i;
+				new_config.bitrate = (opus_int32) val;
 			}
 		}
 		else if (!strcasecmp(var->name, "fec"))
 		{
-			fec = ast_true(var->value);
+			/* Normalize to 0 or 1 since ast_true() returns -1 for true */
+			new_config.fec = !!ast_true(var->value);
 		}
 		else if (!strcasecmp(var->name, "dtx"))
 		{
-			dtx = ast_true(var->value);
+			/* Normalize to 0 or 1 since ast_true() returns -1 for true */
+			new_config.dtx = !!ast_true(var->value);
 		}
 		else if (!strcasecmp(var->name, "cbr"))
 		{
-			cbr = ast_true(var->value);
+			/* Normalize to 0 or 1 since ast_true() returns -1 for true */
+			new_config.cbr = !!ast_true(var->value);
 		}
 		else if (!strcasecmp(var->name, "max_playback_rate") || !strcasecmp(var->name, "maxplaybackrate"))
 		{
-			i = atoi(var->value);
-			if (i < 8000 || i > 48000)
+			char *endptr;
+			long val = strtol(var->value, &endptr, 10);
+			if (endptr == var->value || *endptr != '\0')
 			{
 				res = 1;
-				ast_log(LOG_ERROR, "max_playback_rate must be in 8000-48000\n");
+				ast_log(LOG_ERROR, "max_playback_rate must be a numeric value (got '%s')\n", var->value);
 				break;
 			}
-			max_playback_rate = i;
+			/* Opus only supports specific sampling rates */
+			if (val != 8000 && val != 12000 && val != 16000 && val != 24000 && val != 48000)
+			{
+				res = 1;
+				ast_log(LOG_ERROR, "max_playback_rate must be one of: 8000, 12000, 16000, 24000, 48000\n");
+				break;
+			}
+			new_config.max_playback_rate = (int) val;
 		}
 		else if (!strcasecmp(var->name, "packet_loss"))
 		{
-			i = atoi(var->value);
-			if (i < -1 || i > 100)
+			char *endptr;
+			long val = strtol(var->value, &endptr, 10);
+			if (endptr == var->value || *endptr != '\0')
+			{
+				res = 1;
+				ast_log(LOG_ERROR, "packet_loss must be a numeric value (got '%s')\n", var->value);
+				break;
+			}
+			if (val < -1 || val > 100)
 			{
 				res = 1;
 				ast_log(LOG_ERROR, "packet_loss must be in -1-100\n");
 				break;
 			}
-			if (i == 0)
+			if (val == 0)
 			{
 				ast_debug(1, "packet_loss=0 forces FEC for all packets (no loss estimation)\n");
 			}
-			packet_loss = i;
+			new_config.packet_loss = (int) val;
 		}
 		else if (!strcasecmp(var->name, "max_bandwidth"))
 		{
@@ -1044,7 +1142,7 @@ static int parse_config(int reload)
 				ast_log(LOG_ERROR, "max_bandwidth must be one of: narrow, medium, wide, super_wide, full\n");
 				break;
 			}
-			ast_copy_string(max_bandwidth, var->value, sizeof(max_bandwidth));
+			ast_copy_string(new_config.max_bandwidth, var->value, sizeof(new_config.max_bandwidth));
 		}
 		else if (!strcasecmp(var->name, "signal"))
 		{
@@ -1056,7 +1154,7 @@ static int parse_config(int reload)
 				ast_log(LOG_ERROR, "signal must be one of: auto, voice, music\n");
 				break;
 			}
-			ast_copy_string(signal_type, var->value, sizeof(signal_type));
+			ast_copy_string(new_config.signal_type, var->value, sizeof(new_config.signal_type));
 		}
 		else if (!strcasecmp(var->name, "application"))
 		{
@@ -1068,22 +1166,38 @@ static int parse_config(int reload)
 				ast_log(LOG_ERROR, "application must be one of: voip, audio, low_delay\n");
 				break;
 			}
-			ast_copy_string(application, var->value, sizeof(application));
+			ast_copy_string(new_config.application, var->value, sizeof(new_config.application));
 		}
 	}
 	ast_config_destroy(cfg);
+
+	/* Only apply changes if all parsing succeeded (atomic swap) */
+	if (!res)
+	{
+		ast_rwlock_wrlock(&config_lock);
+		config = new_config;
+		ast_rwlock_unlock(&config_lock);
+	}
 
 	return res;
 }
 
 static int reload(void)
 {
-	if (parse_config(1))
+	int res = parse_config(1);
+
+	if (res == 1)
 	{
+		/* Error parsing configuration */
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
-	ast_verbose(VERBOSE_PREFIX_2 "Opus codec configuration reloaded\n");
+	if (res == 0)
+	{
+		/* Configuration was actually reloaded */
+		ast_verbose(VERBOSE_PREFIX_2 "Opus codec configuration reloaded\n");
+	}
+	/* res == 2 means no change needed (file missing or unchanged), stay silent */
 
 	return AST_MODULE_LOAD_SUCCESS;
 }
@@ -1108,6 +1222,8 @@ static int unload_module(void)
 
 	ast_cli_unregister_multiple(cli, ARRAY_LEN(cli));
 
+	ast_rwlock_destroy(&config_lock);
+
 	return res;
 }
 
@@ -1115,12 +1231,22 @@ static int load_module(void)
 {
 	int res;
 
-	if (parse_config(0))
+	ast_rwlock_init(&config_lock);
+
+	/* parse_config returns: 0 = loaded, 1 = error, 2 = no file (use defaults) */
+	if (parse_config(0) == 1)
 	{
+		ast_rwlock_destroy(&config_lock);
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
 	opus_codec = ast_codec_get("opus", AST_MEDIA_TYPE_AUDIO, 48000);
+	if (!opus_codec)
+	{
+		ast_log(LOG_ERROR, "Failed to get opus codec\n");
+		ast_rwlock_destroy(&config_lock);
+		return AST_MODULE_LOAD_DECLINE;
+	}
 	opus_samples_previous = opus_codec->samples_count;
 	opus_codec->samples_count = opus_samples;
 
@@ -1135,9 +1261,30 @@ static int load_module(void)
 	res |= ast_register_translator(&opustolin48);
 	res |= ast_register_translator(&lin48toopus);
 
+	if (res)
+	{
+		ast_log(LOG_ERROR, "Failed to register one or more Opus translators\n");
+		/* Unregister any translators that may have succeeded */
+		ast_unregister_translator(&opustolin);
+		ast_unregister_translator(&lintoopus);
+		ast_unregister_translator(&opustolin12);
+		ast_unregister_translator(&lin12toopus);
+		ast_unregister_translator(&opustolin16);
+		ast_unregister_translator(&lin16toopus);
+		ast_unregister_translator(&opustolin24);
+		ast_unregister_translator(&lin24toopus);
+		ast_unregister_translator(&opustolin48);
+		ast_unregister_translator(&lin48toopus);
+		/* Restore codec and cleanup */
+		opus_codec->samples_count = opus_samples_previous;
+		ao2_ref(opus_codec, -1);
+		ast_rwlock_destroy(&config_lock);
+		return AST_MODULE_LOAD_DECLINE;
+	}
+
 	ast_cli_register_multiple(cli, ARRAY_LEN(cli));
 
-	return res;
+	return AST_MODULE_LOAD_SUCCESS;
 }
 
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_DEFAULT, "Opus Coder/Decoder",

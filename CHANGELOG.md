@@ -1,6 +1,6 @@
 # Changelog
 
-## [Fork maintained by Amical AI]
+## [Fork maintained by Amical]
 
 ### Added
 - Support for runtime configuration via codecs.conf
@@ -25,7 +25,14 @@
 - Made all configuration parameters match official Asterisk format
 - Standardized parameter naming convention to use underscores
 
+### Improved
+- Thread-safe configuration with RWLock for safe hot reload
+- Atomic parse-then-swap pattern for configuration updates
+- Robust input validation using strtol instead of atoi
+- Complete cleanup handling on module load failure
+
 ### Fixed
 - Addressed various compatibility issues with newer Asterisk versions
 - Fixed CBR/VBR inversion issue in default value initialization
+- Fixed ast_true() returning -1 causing incorrect boolean values
 - Added proper validation for all parameter values 

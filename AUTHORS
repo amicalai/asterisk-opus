@@ -8,7 +8,7 @@
 
 # Fork Maintainers
 
-* Yoann Vanitou <yvanitou@amical-ai.com> - Amical AI (https://amical-ai.com)
+* Yoann Vanitou <yvanitou@amical-ai.com> - Amical (https://amical-ai.com)
   - Added support for codecs.conf configuration
   - Added packet loss estimation parameter
   - Added configuration reload capability

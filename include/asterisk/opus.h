@@ -2,9 +2,10 @@
  * Asterisk -- An open source telephony toolkit.
  *
  * Copyright (C) 2013, Digium, Inc.
- * Copyright (C) 2023-2024, Yoann Vanitou <yvanitou@amical-ai.com>
+ * Copyright (C) 2023-2025, Amical
  *
  * Lorenzo Miniero <lorenzo@meetecho.com>
+ * Additional modifications by Yoann Vanitou <yvanitou@amical-ai.com>
  *
  * See http://www.asterisk.org for more information about
  * the Asterisk project. Please do not directly contact

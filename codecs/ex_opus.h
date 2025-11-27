@@ -2,6 +2,7 @@
  * \brief 8-bit data
  *
  * Copyright (C) 2014, Lorenzo Miniero
+ * Copyright (C) 2023-2025, Yoann Vanitou <yvanitou@amical-ai.com>
  *
  * Distributed under the terms of the GNU General Public License
  *
