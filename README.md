@@ -4,7 +4,7 @@ Opus is the default audio codec in WebRTC. WebRTC is available in Asterisk via S
 
 Since Asterisk 13.12, Opus is not only supported for pass-through but can be transcoded as well. This allows you to translate to/from other audio codecs like those for landline telephones (ISDN: G.711; DECT: G.726-32; and HD: G.722) or mobile phones (GSM, AMR, AMR-WB, 3GPP EVS).
 
-This fork offers an Open Source implementation that allows you to double-check the existing code, contribute and/or add your own features. It is fully compatible with Asterisk 22.3.x and later versions.
+This fork offers an Open Source implementation that allows you to double-check the existing code, contribute and/or add your own features. It is fully compatible with Asterisk 22.x.x and 23.x.x.
 
 This fork is maintained at [https://github.com/amicalai/asterisk-opus](https://github.com/amicalai/asterisk-opus) on the `main` branch.
 
@@ -51,7 +51,7 @@ asterisk -rx "module reload codec_opus_open_source.so"
 See the included `codecs.conf.sample` for more details and a complete configuration example.
 
 ## Installing
-This module is compatible with Asterisk 22.3.x and later versions. If you encounter any issues, please [report them](https://github.com/amicalai/asterisk-opus/issues)!
+This module is compatible with Asterisk 22.x.x and 23.x.x. If you encounter any issues, please [report them](https://github.com/amicalai/asterisk-opus/issues)!
 
 	cd /usr/src/
 	wget downloads.asterisk.org/pub/telephony/asterisk/asterisk-22-current.tar.gz

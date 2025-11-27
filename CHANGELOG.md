@@ -16,7 +16,7 @@
   - signal (auto, voice, music)
   - application (voip, audio, low_delay)
 - Configuration hot reload capability via CLI command
-- Compatibility with Asterisk 22.3.x
+- Compatibility with Asterisk 22.x.x and 23.x.x
 - Enhanced CLI output showing current codec configuration
 
 ### Changed

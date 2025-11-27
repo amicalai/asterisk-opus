@@ -12,5 +12,5 @@
   - Added support for codecs.conf configuration
   - Added packet loss estimation parameter
   - Added configuration reload capability
-  - Updated compatibility for Asterisk 22.3.x
+  - Updated compatibility for Asterisk 22.x.x and 23.x.x
   - Enhanced CLI output 
