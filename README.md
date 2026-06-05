@@ -50,6 +50,36 @@ asterisk -rx "module reload codec_opus_open_source.so"
 
 See the included `codecs.conf.sample` for more details and a complete configuration example.
 
+## Development Environment
+
+This project includes a DevContainer for module development with Asterisk pre-built and ready for fast iteration.
+
+**Base images:**
+- **Debian Bookworm** (default) — `.devcontainer/Dockerfile`
+- **Alpine 3.22** (variant) — `.devcontainer/Dockerfile.alpine`
+
+To use Alpine, set `"dockerfile": "Dockerfile.alpine"` in `.devcontainer/devcontainer.json`.
+
+### Prerequisites
+
+- [Docker](https://www.docker.com/products/docker-desktop/)
+- [Visual Studio Code](https://code.visualstudio.com/) with [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+
+### Getting Started
+
+1. Clone this repository and open it in VS Code
+2. **Reopen in Container** when prompted
+3. Use the development Makefile:
+
+```bash
+make -f Makefile.dev all    # Build and install Opus modules
+make -f Makefile.dev run    # Start Asterisk with ASAN
+make -f Makefile.dev cli      # Connect to Asterisk CLI
+make -f Makefile.dev quick    # Rebuild and reload after code changes
+```
+
+The sample `codecs.conf` is bind-mounted from `codecs.conf.sample` for testing configuration changes.
+
 ## Installing
 This module is compatible with Asterisk 22.x.x and 23.x.x. If you encounter any issues, please [report them](https://github.com/amicalai/asterisk-opus/issues)!
 
