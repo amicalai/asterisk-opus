@@ -1,0 +1,81 @@
+# Makefile for Opus module development in DevContainer
+# Company: Amical
+
+ASTERISK_SRC := /usr/src/asterisk
+ASTERISK_MODULES := /usr/lib/asterisk/modules
+WORKSPACE := /workspaces/asterisk-opus
+
+HEADER := $(WORKSPACE)/include/asterisk/opus.h
+CODEC_SRC := $(WORKSPACE)/codecs/codec_opus_open_source.c
+RES_SRC := $(WORKSPACE)/res/res_format_attr_opus.c
+
+AST_HEADER := $(ASTERISK_SRC)/include/asterisk/opus.h
+AST_CODEC := $(ASTERISK_SRC)/codecs/codec_opus_open_source.c
+AST_RES := $(ASTERISK_SRC)/res/res_format_attr_opus.c
+
+CODEC_MODULE := $(ASTERISK_SRC)/codecs/codec_opus_open_source.so
+RES_MODULE := $(ASTERISK_SRC)/res/res_format_attr_opus.so
+
+.PHONY: all link build install clean reload run stop cli help
+
+.DEFAULT_GOAL := help
+
+all: link build install
+
+link:
+	@echo "=== Creating symlinks ==="
+	sudo ln -sf $(HEADER) $(AST_HEADER)
+	sudo ln -sf $(CODEC_SRC) $(AST_CODEC)
+	sudo ln -sf $(RES_SRC) $(AST_RES)
+
+build: link
+	@echo "=== Building Opus modules ==="
+	sudo touch $(AST_CODEC) $(AST_RES)
+	cd $(ASTERISK_SRC) && sudo make codecs
+	cd $(ASTERISK_SRC) && sudo make res
+
+install: build
+	@echo "=== Installing modules ==="
+	sudo cp $(CODEC_MODULE) $(ASTERISK_MODULES)/
+	sudo cp $(RES_MODULE) $(ASTERISK_MODULES)/
+
+reload:
+	@echo "=== Reloading modules ==="
+	sudo asterisk -rx "module unload codec_opus_open_source.so" 2>/dev/null || true
+	sudo asterisk -rx "module unload res_format_attr_opus.so" 2>/dev/null || true
+	sudo asterisk -rx "module load codec_opus_open_source.so"
+	sudo asterisk -rx "module load res_format_attr_opus.so"
+
+quick: install reload
+
+clean:
+	@echo "=== Cleaning modules ==="
+	sudo rm -f $(CODEC_MODULE) $(RES_MODULE)
+	sudo rm -f $(ASTERISK_SRC)/codecs/codec_opus_open_source.o
+	sudo rm -f $(ASTERISK_SRC)/res/res_format_attr_opus.o
+
+run:
+	@echo "=== Starting Asterisk with ASAN ==="
+	sudo killall asterisk 2>/dev/null || true
+	sleep 1
+	sudo ASAN_OPTIONS=abort_on_error=1:detect_stack_use_after_return=1:detect_leaks=1:fast_unwind_on_malloc=0:allocator_may_return_null=1 \
+	     LSAN_OPTIONS=suppressions=$(WORKSPACE)/.devcontainer/lsan_suppressions.txt \
+	     asterisk -f -vvvvvvvv
+
+stop:
+	@echo "=== Stopping Asterisk ==="
+	sudo killall asterisk 2>/dev/null || true
+
+cli:
+	sudo asterisk -rvvvvvvvv
+
+help:
+	@echo "Opus Module Development Makefile (DevContainer)"
+	@echo ""
+	@echo "Commands:"
+	@echo "  make -f Makefile.dev           - Show this help"
+	@echo "  make -f Makefile.dev all       - Link, build and install modules"
+	@echo "  make -f Makefile.dev quick     - Build, install and reload"
+	@echo "  make -f Makefile.dev run       - Start Asterisk with ASAN"
+	@echo "  make -f Makefile.dev cli       - Connect to Asterisk CLI"
+	@echo "  make -f Makefile.dev stop      - Stop Asterisk"

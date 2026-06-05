@@ -1,0 +1,14 @@
+# Suppression file for LeakSanitizer (LSAN)
+# Format: each line contains a pattern to ignore specific memory leaks
+# See: https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer
+
+# Ignore leaks from Asterisk (most are intentional or unavoidable)
+leak:ast_
+leak:pbx_
+leak:__ast_
+
+# Ignore leaks from the dynamic loader
+leak:_dl_init
+
+# Ignore leaks in external libraries
+leak:libpcre
